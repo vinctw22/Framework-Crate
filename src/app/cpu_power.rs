@@ -104,7 +104,9 @@ impl App {
                 Some(Task::none())
             }
             Message::RedetectModules => {
-                let ok = crate::cpu_power::redetect_modules();
+                let ok = crate::cpu_power::redetect_modules(
+                    self.state.system.amd_cpu.load(Ordering::Acquire),
+                );
                 if ok {
                     self.modules_download_error = None;
 
@@ -122,8 +124,9 @@ impl App {
                 {
                     return Some(Task::none());
                 }
+                let amd_cpu = self.state.system.amd_cpu.load(Ordering::Acquire);
                 Some(Task::perform(
-                    async {
+                    async move {
                         let r1 = crate::util::spawn_blocking_with_timeout(
                             crate::util::PAWNIO_INSTALL_TIMEOUT,
                             || crate::cpu_power::update_pawnio().map_err(|e| e.to_string()),
@@ -132,7 +135,10 @@ impl App {
                         .unwrap_or_else(Err);
                         let r2 = crate::util::spawn_blocking_with_timeout(
                             crate::util::PAWNIO_INSTALL_TIMEOUT,
-                            || crate::cpu_power::update_pawnio_modules().map_err(|e| e.to_string()),
+                            move || {
+                                crate::cpu_power::update_pawnio_modules(amd_cpu)
+                                    .map_err(|e| e.to_string())
+                            },
                         )
                         .await
                         .unwrap_or_else(Err);

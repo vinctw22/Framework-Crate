@@ -33,8 +33,8 @@ pub(crate) fn to_wide_path(path: &std::path::Path) -> Vec<u16> {
 
 pub use startup_task::{SingleInstanceGuard, set_startup_launch, startup_launch_enabled};
 pub use system::{
-    cpu_name, display_refresh_rate, display_resolution, is_intel_cpu, os_version, total_memory_gb,
-    work_area_size,
+    cpu_name, display_refresh_rate, display_resolution, is_amd_cpu, is_intel_cpu, os_version,
+    total_memory_gb, work_area_size,
 };
 pub use window::{
     PBT_APMRESUMEAUTOMATIC, PBT_APMRESUMESUSPEND, WM_POWERBROADCAST, find_main_window_by_pid,

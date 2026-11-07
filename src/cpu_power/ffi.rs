@@ -573,7 +573,7 @@ pub fn update_pawnio() -> Result<(), String> {
 /// Updates PawnIO Modules. Skips the download when the recorded local tag
 /// already matches upstream latest; an unreachable API or missing marker
 /// falls through to downloading.
-pub fn update_pawnio_modules() -> Result<(), String> {
+pub fn update_pawnio_modules(amd: bool) -> Result<(), String> {
     let latest_tag = latest_modules_download_url()
         .as_deref()
         .and_then(tag_from_modules_url);
@@ -583,7 +583,7 @@ pub fn update_pawnio_modules() -> Result<(), String> {
     // hash-pinned blobs actually verify.
     // Fresh verify: a cached `modules_downloaded` result could hide files
     // deleted or replaced after the last check.
-    if !modules_update_needed(local.as_deref(), latest_tag.as_deref()) && redetect_modules() {
+    if !modules_update_needed(local.as_deref(), latest_tag.as_deref()) && redetect_modules(amd) {
         tracing::info!(
             "PawnIO Modules already at latest ({})",
             latest_tag.as_deref().unwrap_or_default()

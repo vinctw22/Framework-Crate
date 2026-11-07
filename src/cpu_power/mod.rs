@@ -1,3 +1,4 @@
+pub mod amd;
 mod bios;
 mod ffi;
 mod limits;
@@ -6,6 +7,7 @@ mod read;
 mod sync;
 mod types;
 
+pub use amd::{AmdPowerInfo, read_amd_power};
 pub use bios::{BiosDefaults, publish_ac_snapshot, read_ac_present};
 pub use ffi::{
     install_pawnio, invalidate_authenticode, is_pawnio_installed, pawnio_version, reset_dll_fns,
@@ -16,8 +18,8 @@ pub use limits::{
     write_msr_pl1_pl2_public,
 };
 pub use modules::{
-    download_and_extract_modules, modules_downloaded, open_modules_dir, pawnio_modules_version,
-    redetect_modules,
+    download_and_extract_modules, modules_downloaded, modules_downloaded_amd, open_modules_dir,
+    pawnio_modules_version, redetect_modules,
 };
 pub use types::{
     CpuPowerInfo, CpuPowerUnavailable, LIMIT_MAX_TIME_S, LIMIT_MAX_WATTS, PowerLimitParams,
@@ -33,7 +35,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use tracing::{info, warn};
 
-use crate::util::with_write_lock;
+use crate::util::{read_lock, with_write_lock};
 
 /// Builds write parameters from a saved profile. The profile only stores the
 /// user's intent; units, the firmware time ceiling, and the PL2 window always
@@ -81,6 +83,8 @@ pub fn initial_profile_from_mmio(info: &CpuPowerInfo) -> Option<crate::types::Po
 #[derive(Clone)]
 pub struct CpuPowerState {
     pub info: Arc<parking_lot::RwLock<Arc<CpuPowerInfo>>>,
+    /// Read-only AMD PM-table snapshot, filled when the CPU vendor is AMD.
+    pub amd_info: Arc<parking_lot::RwLock<Arc<AmdPowerInfo>>>,
     pub available: Arc<AtomicBool>,
     pub sync_enabled: Arc<AtomicBool>,
     sync_thread: Arc<parking_lot::Mutex<SyncThread>>,
@@ -115,6 +119,7 @@ impl Default for CpuPowerState {
     fn default() -> Self {
         Self {
             info: Arc::new(parking_lot::RwLock::new(Arc::new(CpuPowerInfo::default()))),
+            amd_info: Arc::new(parking_lot::RwLock::new(Arc::new(AmdPowerInfo::default()))),
             available: Arc::new(AtomicBool::new(false)),
             sync_enabled: Arc::new(AtomicBool::new(false)),
             sync_thread: Arc::new(parking_lot::Mutex::new(SyncThread::new())),
@@ -131,6 +136,24 @@ impl Default for CpuPowerState {
 }
 
 impl CpuPowerState {
+    /// Refreshes the AMD PM-table snapshot. Read-only; no SMU writes.
+    pub fn refresh_amd(&self) {
+        let info = match read_amd_power() {
+            Ok(info) => info,
+            Err(e) => {
+                tracing::debug!("AMD CPU power read failed: {}", e);
+                AmdPowerInfo::from_error(e)
+            }
+        };
+        with_write_lock(&self.amd_info, |guard| {
+            *guard = Arc::new(info);
+        });
+    }
+
+    pub fn amd_snapshot(&self) -> Arc<AmdPowerInfo> {
+        Arc::clone(&read_lock(&self.amd_info))
+    }
+
     pub fn refresh(&self) {
         let info = read_cpu_power();
         let is_available = info.available;

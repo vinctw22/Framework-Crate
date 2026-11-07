@@ -80,6 +80,22 @@ pub fn is_intel_cpu() -> bool {
     false
 }
 
+/// CPUID leaf 0 vendor string. AMD RyzenSMU support is detected separately.
+#[cfg(target_arch = "x86_64")]
+pub fn is_amd_cpu() -> bool {
+    let r = core::arch::x86_64::__cpuid_count(0, 0);
+    let mut vendor = [0u8; 12];
+    vendor[0..4].copy_from_slice(&r.ebx.to_le_bytes());
+    vendor[4..8].copy_from_slice(&r.edx.to_le_bytes());
+    vendor[8..12].copy_from_slice(&r.ecx.to_le_bytes());
+    &vendor == b"AuthenticAMD"
+}
+
+#[cfg(not(target_arch = "x86_64"))]
+pub fn is_amd_cpu() -> bool {
+    false
+}
+
 pub fn total_memory_gb() -> String {
     let mut mem = MEMORYSTATUSEX {
         dwLength: std::mem::size_of::<MEMORYSTATUSEX>() as u32,

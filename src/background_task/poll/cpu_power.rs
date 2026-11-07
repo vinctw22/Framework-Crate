@@ -29,19 +29,22 @@ pub(in crate::background_task) async fn phase_cpu_power(
         CPU_POWER_POLL_MS
     };
     let visible = state.lifecycle.visible.load(Ordering::Acquire);
-    if visible
-        && state.system.intel_cpu.load(Ordering::Acquire)
-        && now_ms.saturating_sub(poll.last_cpu_power_poll) >= cpu_poll_ms
-    {
+    let intel = state.system.intel_cpu.load(Ordering::Acquire);
+    let amd = state.system.amd_cpu.load(Ordering::Acquire);
+    if visible && (intel || amd) && now_ms.saturating_sub(poll.last_cpu_power_poll) >= cpu_poll_ms {
         poll.last_cpu_power_poll = now_ms;
         // Run PawnIO ioctls off async worker like other EC I/O.
         let cpu_power = state.cpu_power.clone();
-        if let Err(e) =
+        let result =
             crate::util::spawn_blocking_with_timeout(crate::util::PAWNIO_IO_TIMEOUT, move || {
-                cpu_power.refresh()
+                if intel {
+                    cpu_power.refresh();
+                } else {
+                    cpu_power.refresh_amd();
+                }
             })
-            .await
-        {
+            .await;
+        if let Err(e) = result {
             warn!("CPU power refresh task failed: {}", e);
         }
         mark_view_dirty(state);

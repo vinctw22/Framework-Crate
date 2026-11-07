@@ -168,6 +168,7 @@ pub struct SystemState {
     pub pd_fw: Arc<RwLock<Arc<Option<Vec<String>>>>>,
     pub platform: Arc<RwLock<Arc<cli::ec_wrapper::PlatformFamily>>>,
     pub intel_cpu: Arc<AtomicBool>,
+    pub amd_cpu: Arc<AtomicBool>,
 }
 
 impl Default for SystemState {
@@ -182,6 +183,7 @@ impl Default for SystemState {
                 cli::ec_wrapper::PlatformFamily::Unknown,
             ))),
             intel_cpu: Arc::new(AtomicBool::new(false)),
+            amd_cpu: Arc::new(AtomicBool::new(false)),
         }
     }
 }

@@ -15,7 +15,122 @@ pub(crate) fn turbo_text(now_ghz: Option<f64>, limit_ghz: Option<f64>) -> Option
     }
 }
 
+/// Read-only AMD CPU Power card. Writes land in a later phase; this card
+/// exists so AMD users can verify the RyzenSMU session and PM-table values.
+fn amd_power_section(snap: &ViewSnapshot) -> Element<'_, Message> {
+    let pal = snap.palette;
+    let info = &snap.amd_power;
+    let mut content = column![
+        text("CPU Power")
+            .size(FONT_SECTION)
+            .style(move |_theme| iced::widget::text::Style {
+                color: Some(pal.header)
+            }),
+        text("AMD RyzenSMU — read-only")
+            .size(FONT_SMALL)
+            .style(move |_theme| iced::widget::text::Style {
+                color: Some(pal.gray),
+            }),
+    ]
+    .spacing(4);
+
+    if !info.available {
+        if let Some(ref err) = info.error {
+            content = content.push(text(err.to_string()).size(FONT_SMALL).style(move |_theme| {
+                iced::widget::text::Style {
+                    color: Some(pal.error),
+                }
+            }));
+        }
+        if !crate::cpu_power::is_pawnio_installed() {
+            content = content.push(
+                button(text("Install PawnIO").size(FONT_BODY))
+                    .on_press(Message::InstallPawnIO)
+                    .style(btn_style),
+            );
+        } else if !crate::cpu_power::modules_downloaded_amd() {
+            content = content.push(
+                text("PawnIO Modules required (RyzenSMU.bin)")
+                    .size(FONT_SMALL)
+                    .style(move |_theme| iced::widget::text::Style {
+                        color: Some(pal.gray),
+                    }),
+            );
+            let download_button =
+                button(text("Download PawnIO Modules").size(FONT_BODY)).style(btn_style);
+            content = content.push(if snap.pawnio_busy {
+                download_button
+            } else {
+                download_button.on_press(Message::DownloadPawnIOModules)
+            });
+            content = content.push(
+                row![
+                    button(text("Open Modules Folder").size(FONT_BODY))
+                        .on_press(Message::OpenModulesDir)
+                        .style(btn_style),
+                    button(text("Redetect Modules").size(FONT_BODY))
+                        .on_press(Message::RedetectModules)
+                        .style(btn_style),
+                ]
+                .spacing(8),
+            );
+        }
+        if let Some(ref status) = snap.pawnio_status {
+            content = content.push(text(status.as_str()).size(FONT_SMALL).style(move |_theme| {
+                iced::widget::text::Style {
+                    color: Some(pal.gray),
+                }
+            }));
+        }
+        return content.into();
+    }
+
+    content = content.push(
+        text(format!(
+            "{}  ·  SMU {}.{}.{}  ·  PM table 0x{:06X}",
+            info.code_name_name(),
+            (info.smu_version >> 24) & 0xFF,
+            (info.smu_version >> 16) & 0xFF,
+            (info.smu_version >> 8) & 0xFF,
+            info.pm_table_version
+        ))
+        .size(FONT_SMALL)
+        .style(move |_theme| iced::widget::text::Style {
+            color: Some(pal.gray),
+        }),
+    );
+    for (label, value) in [
+        ("STAPM", format!("{:.1} W", info.stapm_w)),
+        ("PPT Fast", format!("{:.1} W", info.fast_w)),
+        ("PPT Slow", format!("{:.1} W", info.slow_w)),
+        ("Tctl", format!("{:.1} °C", info.tctl_c)),
+    ] {
+        content = content.push(
+            row![
+                text(label).size(FONT_BODY),
+                space::horizontal(),
+                text(value).size(FONT_BODY),
+            ]
+            .spacing(8),
+        );
+    }
+    if let Some(apu_slow) = info.apu_slow_w {
+        content = content.push(
+            row![
+                text("APU Slow").size(FONT_BODY),
+                space::horizontal(),
+                text(format!("{apu_slow:.1} W")).size(FONT_BODY),
+            ]
+            .spacing(8),
+        );
+    }
+    content.into()
+}
+
 pub(crate) fn cpu_power_section(snap: &ViewSnapshot) -> Element<'_, Message> {
+    if snap.amd_cpu {
+        return amd_power_section(snap);
+    }
     let mut content = column![].spacing(2);
     let pal = snap.palette;
 

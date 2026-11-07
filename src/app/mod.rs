@@ -369,6 +369,7 @@ impl App {
                     crate::cli::ec_wrapper::detect_platform(),
                 ))),
                 intel_cpu: Arc::new(AtomicBool::new(system_info::is_intel_cpu())),
+                amd_cpu: Arc::new(AtomicBool::new(system_info::is_amd_cpu())),
             },
             fan: FanState {
                 mode: Arc::new(AtomicU64::new(loaded_config.fan.mode.to_u8() as u64)),
@@ -627,6 +628,8 @@ impl App {
                         if state.system.intel_cpu.load(Ordering::Acquire) {
                             state.cpu_power.refresh();
                             state.cpu_power.init_bios_defaults();
+                        } else if state.system.amd_cpu.load(Ordering::Acquire) {
+                            state.cpu_power.refresh_amd();
                         }
                         Message::InitComplete
                     }

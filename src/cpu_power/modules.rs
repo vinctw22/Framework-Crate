@@ -19,12 +19,21 @@ const LAST_KNOWN_MODULES_VERSION: &str = "0.2.11";
 const INTEL_MSR_SHA256: &str = "d6ed85d65ab17a22f813ef98207d6d537155ee2ded5976a21cb48413c9b92e5f";
 const INTEL_MCHBAR_SHA256: &str =
     "3f82b832d99b4aac37d2a20fdb7c9baa2a3bc0488612c9019c9484eb0e8a6eae";
+const RYZEN_SMU_SHA256: &str = "301d9ca397108e09f31bfbd5ac4c9bb4f352a5de68532c32db3ba7ddcde93450";
 
 /// Module blob file names. Named next to the hashes they belong to: a typo in
 /// a file name compiles either way and only shows up as a missing blob at
 /// runtime, next to a hash that is correct.
 const INTEL_MSR_FILE: &str = "IntelMSR.bin";
 const INTEL_MCHBAR_FILE: &str = "IntelMCHBAR.bin";
+const RYZEN_SMU_FILE: &str = "RyzenSMU.bin";
+
+/// Files extracted from the upstream ZIP and verified before promotion.
+const REQUIRED_MODULES: [(&str, &str); 3] = [
+    (INTEL_MSR_FILE, INTEL_MSR_SHA256),
+    (INTEL_MCHBAR_FILE, INTEL_MCHBAR_SHA256),
+    (RYZEN_SMU_FILE, RYZEN_SMU_SHA256),
+];
 
 /// Upper bound for the downloaded Modules ZIP. Releases are a few hundred KB;
 /// anything larger is either the wrong file or a decompression-bomb attempt.
@@ -120,7 +129,7 @@ fn ps_escape(s: &str) -> String {
 
 /// Manual fallback instructions appended to download/extraction failures.
 fn manual_download_hint() -> &'static str {
-    "check internet or download latest release_*.zip manually from https://github.com/namazso/PawnIO.Modules/releases/latest and place IntelMSR.bin / IntelMCHBAR.bin into the modules folder (use Open Modules Folder)"
+    "check internet or download latest release_*.zip manually from https://github.com/namazso/PawnIO.Modules/releases/latest and place IntelMSR.bin / IntelMCHBAR.bin / RyzenSMU.bin into the modules folder (use Open Modules Folder)"
 }
 
 /// One-line failure detail from child output: stderr, else stdout, else exit
@@ -320,27 +329,39 @@ fn read_verified_module(path: &std::path::Path, expected: &str) -> Result<Vec<u8
 }
 
 static MODULES_CACHE: parking_lot::RwLock<Option<bool>> = parking_lot::RwLock::new(None);
+static AMD_MODULES_CACHE: parking_lot::RwLock<Option<bool>> = parking_lot::RwLock::new(None);
 
-/// Checks if usable module blobs are present (cached). Presence alone is not
-/// enough: hashes are enforced, so a mismatched manual copy counts as missing.
-pub fn modules_downloaded() -> bool {
+fn modules_ready(cache: &parking_lot::RwLock<Option<bool>>, required: &[(&str, &str)]) -> bool {
     {
-        let guard = MODULES_CACHE.read();
+        let guard = cache.read();
         if let Some(cached) = *guard {
             return cached;
         }
     }
     let dir = modules_dir();
-    let present = dir.join(INTEL_MSR_FILE).is_file() && dir.join(INTEL_MCHBAR_FILE).is_file();
-    let ready = present
-        && verify_module_hash(&dir.join(INTEL_MSR_FILE), INTEL_MSR_SHA256).is_ok()
-        && verify_module_hash(&dir.join(INTEL_MCHBAR_FILE), INTEL_MCHBAR_SHA256).is_ok();
-    *MODULES_CACHE.write() = Some(ready);
+    let ready = required.iter().all(|(name, _)| dir.join(name).is_file())
+        && required
+            .iter()
+            .all(|(name, expected)| verify_module_hash(&dir.join(name), expected).is_ok());
+    *cache.write() = Some(ready);
     ready
+}
+
+/// Intel modules (MSR + MCHBAR). Presence alone is not enough: hashes are
+/// enforced, so a mismatched manual copy counts as missing.
+pub fn modules_downloaded() -> bool {
+    modules_ready(&MODULES_CACHE, &REQUIRED_MODULES[..2])
+}
+
+/// AMD module (RyzenSMU). Kept separate so an Intel install that predates
+/// RyzenSMU support does not suddenly report its modules as missing.
+pub fn modules_downloaded_amd() -> bool {
+    modules_ready(&AMD_MODULES_CACHE, &REQUIRED_MODULES[2..])
 }
 
 fn invalidate_modules_cache() {
     *MODULES_CACHE.write() = None;
+    *AMD_MODULES_CACHE.write() = None;
 }
 
 /// Creates a fresh empty staging dir for archive extraction.
@@ -710,8 +731,8 @@ fn extract_staged_zip_inner(
         cleanup(&staging, zip_tmp);
         return Err(e);
     }
-    // 4. Require the two expected bins as regular files, then enforce hashes.
-    for name in [INTEL_MSR_FILE, INTEL_MCHBAR_FILE] {
+    // 4. Require the expected bins as regular files, then enforce hashes.
+    for (name, _) in REQUIRED_MODULES {
         let src = staging.join(name);
         let meta =
             std::fs::symlink_metadata(&src).map_err(|_| format!("archive missing {}", name))?;
@@ -720,10 +741,7 @@ fn extract_staged_zip_inner(
             return Err(format!("archive missing {}", name));
         }
     }
-    for (name, expected) in [
-        (INTEL_MSR_FILE, INTEL_MSR_SHA256),
-        (INTEL_MCHBAR_FILE, INTEL_MCHBAR_SHA256),
-    ] {
+    for (name, expected) in REQUIRED_MODULES {
         if let Err(e) = verify_module_hash(&staging.join(name), expected) {
             cleanup(&staging, zip_tmp);
             return Err(format!(
@@ -733,7 +751,7 @@ fn extract_staged_zip_inner(
         }
     }
     // 5. Promote verified bins into modules dir; old bins stay until replaced.
-    for name in [INTEL_MSR_FILE, INTEL_MCHBAR_FILE] {
+    for (name, _) in REQUIRED_MODULES {
         let src = staging.join(name);
         let dst = dir.join(name);
         let _ = std::fs::remove_file(&dst);
@@ -786,8 +804,9 @@ pub fn download_and_extract_modules() -> Result<(), String> {
     });
     if using_fallback {
         let local = local_modules_version();
-        let bins_present =
-            dir.join(INTEL_MSR_FILE).is_file() || dir.join(INTEL_MCHBAR_FILE).is_file();
+        let bins_present = REQUIRED_MODULES
+            .iter()
+            .any(|(name, _)| dir.join(name).is_file());
         if !fallback_overwrite_allowed(local.as_deref(), bins_present) {
             return Err(format!(
                 "GitHub API unreachable and local modules ({}) are not the known fallback {LAST_KNOWN_MODULES_VERSION}; refusing to overwrite a possibly newer or unmarked install",
@@ -947,6 +966,8 @@ fn try_curl_download(url: &str, dir: &std::path::Path) -> Result<(), String> {
 
 static MSR_BLOB_CACHE: parking_lot::Mutex<Option<Arc<Vec<u8>>>> = parking_lot::Mutex::new(None);
 static MCHBAR_BLOB_CACHE: parking_lot::Mutex<Option<Arc<Vec<u8>>>> = parking_lot::Mutex::new(None);
+static RYZEN_SMU_BLOB_CACHE: parking_lot::Mutex<Option<Arc<Vec<u8>>>> =
+    parking_lot::Mutex::new(None);
 
 /// Cached Modules version display string. Lives next to the blob caches so
 /// that invalidating one invalidates all of them.
@@ -960,6 +981,7 @@ static MODULES_VERSION: parking_lot::RwLock<Option<String>> = parking_lot::RwLoc
 fn invalidate_blob_cache() {
     *MSR_BLOB_CACHE.lock() = None;
     *MCHBAR_BLOB_CACHE.lock() = None;
+    *RYZEN_SMU_BLOB_CACHE.lock() = None;
     invalidate_modules_version();
     invalidate_modules_cache();
 }
@@ -1009,10 +1031,15 @@ pub fn open_modules_dir() -> Result<(), String> {
     Ok(())
 }
 
-/// Re-validates modules after manual placement; clears caches.
-pub fn redetect_modules() -> bool {
+/// Re-validates modules after manual placement; clears caches. `amd`
+/// selects which vendor's blobs gate the result.
+pub fn redetect_modules(amd: bool) -> bool {
     invalidate_blob_cache();
-    modules_downloaded()
+    if amd {
+        modules_downloaded_amd()
+    } else {
+        modules_downloaded()
+    }
 }
 
 /// Loads a module blob through the cache, verifying hash on first load.
@@ -1042,6 +1069,11 @@ pub(super) fn load_intel_msr_blob() -> Result<Vec<u8>, &'static str> {
 /// Loads IntelMCHBAR blob (cached after first verified load).
 pub(super) fn load_intel_mchbar_blob() -> Result<Vec<u8>, &'static str> {
     load_blob(&MCHBAR_BLOB_CACHE, INTEL_MCHBAR_FILE, INTEL_MCHBAR_SHA256)
+}
+
+/// Loads RyzenSMU blob (cached after first verified load).
+pub(super) fn load_ryzen_smu_blob() -> Result<Vec<u8>, &'static str> {
+    load_blob(&RYZEN_SMU_BLOB_CACHE, RYZEN_SMU_FILE, RYZEN_SMU_SHA256)
 }
 
 #[cfg(test)]
