@@ -353,22 +353,51 @@ pub fn apply_amd_limits(request: LimitRequest) -> Result<AmdPowerInfo, String> {
         return Ok(before);
     }
 
-    let info = read_info_from_handle(&handle, code_name, smu_version)?;
-    let close = |actual: f32, requested: f64| (f64::from(actual) - requested).abs() <= 1.0;
-    if !close(info.stapm_w, request.stapm_w)
-        || !close(info.fast_w, request.fast_w)
-        || !close(info.slow_w, request.slow_w)
-        || (f64::from(info.tctl_c) - request.tctl_c).abs() > 1.0
-    {
-        tracing::warn!(
-            "AMD readback differs from request: STAPM {:.1} Fast {:.1} Slow {:.1} Tctl {:.1}",
-            info.stapm_w,
-            info.fast_w,
-            info.slow_w,
-            info.tctl_c
-        );
+    let mut info = read_info_from_handle(&handle, code_name, smu_version)?;
+    if let Some(mismatch) = readback_mismatch(&info, &request) {
+        // A single stale PM-table update right after a mailbox write is
+        // possible; re-read once before treating the apply as failed.
+        tracing::warn!("AMD readback mismatch, retrying once: {mismatch}");
+        std::thread::sleep(Duration::from_millis(250));
+        info = read_info_from_handle(&handle, code_name, smu_version)?;
+        if let Some(mismatch) = readback_mismatch(&info, &request) {
+            tracing::warn!("AMD readback still differs after retry: {mismatch}");
+            return Err(mismatch);
+        }
     }
     Ok(info)
+}
+
+/// Describes every control whose readback differs from the request by more
+/// than the encoder tolerance. `None` means the SMU accepted the values.
+fn readback_mismatch(info: &AmdPowerInfo, request: &LimitRequest) -> Option<String> {
+    let close = |actual: f32, requested: f64| (f64::from(actual) - requested).abs() <= 1.0;
+    let mut fields = Vec::new();
+    if !close(info.stapm_w, request.stapm_w) {
+        fields.push(format!(
+            "STAPM {:.1}W (asked {:.1}W)",
+            info.stapm_w, request.stapm_w
+        ));
+    }
+    if !close(info.fast_w, request.fast_w) {
+        fields.push(format!(
+            "PPT Fast {:.1}W (asked {:.1}W)",
+            info.fast_w, request.fast_w
+        ));
+    }
+    if !close(info.slow_w, request.slow_w) {
+        fields.push(format!(
+            "PPT Slow {:.1}W (asked {:.1}W)",
+            info.slow_w, request.slow_w
+        ));
+    }
+    if (f64::from(info.tctl_c) - request.tctl_c).abs() > 1.0 {
+        fields.push(format!(
+            "Tctl {:.1}C (asked {:.1}C)",
+            info.tctl_c, request.tctl_c
+        ));
+    }
+    (!fields.is_empty()).then(|| format!("AMD readback mismatch: {}", fields.join(", ")))
 }
 
 #[cfg(test)]
@@ -385,6 +414,32 @@ mod tests {
         assert_eq!(tctl_index(0x0054_0000), 10);
         assert_eq!(tctl_index(0x0062_0000), 10);
         assert_eq!(tctl_index(0x0099_0000), 16);
+    }
+
+    #[test]
+    fn readback_mismatch_names_each_differing_control() {
+        let info = AmdPowerInfo {
+            stapm_w: 25.0,
+            fast_w: 45.0,
+            slow_w: 35.0,
+            tctl_c: 90.0,
+            ..Default::default()
+        };
+        let request = LimitRequest {
+            stapm_w: 25.0,
+            fast_w: 45.0,
+            slow_w: 35.0,
+            tctl_c: 90.0,
+        };
+        assert!(readback_mismatch(&info, &request).is_none());
+
+        let mut changed = info;
+        changed.fast_w = 40.0;
+        changed.tctl_c = 85.0;
+        let message = readback_mismatch(&changed, &request).expect("mismatch");
+        assert!(message.contains("PPT Fast"), "{message}");
+        assert!(message.contains("Tctl"), "{message}");
+        assert!(!message.contains("PPT Slow"), "{message}");
     }
 
     #[test]
