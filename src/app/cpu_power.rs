@@ -267,6 +267,171 @@ impl App {
                     crate::util::monotonic_ms().saturating_add(PL_RESET_RETRY_MS);
                 Some(self.apply_profile_task(self.pl_profile_is_ac, params, intent))
             }
+            Message::AmdStapmChanged(val) => {
+                self.amd_stapm_edit = val.clone();
+                self.cpu_power_error = None;
+                self.mark_dirty();
+                Some(Task::none())
+            }
+            Message::AmdFastChanged(val) => {
+                self.amd_fast_edit = val.clone();
+                self.cpu_power_error = None;
+                self.mark_dirty();
+                Some(Task::none())
+            }
+            Message::AmdSlowChanged(val) => {
+                self.amd_slow_edit = val.clone();
+                self.cpu_power_error = None;
+                self.mark_dirty();
+                Some(Task::none())
+            }
+            Message::AmdTctlChanged(val) => {
+                self.amd_tctl_edit = val.clone();
+                self.cpu_power_error = None;
+                self.mark_dirty();
+                Some(Task::none())
+            }
+            Message::AmdWriteEnabledToggled(enabled) => {
+                if self.amd_preview {
+                    return Some(Task::none());
+                }
+                self.mutate_config(|cfg| cfg.cpu_power.amd_write_experimental = *enabled);
+                self.save_config();
+                self.mark_dirty();
+                Some(Task::none())
+            }
+            Message::AmdCopyDiagnostics => {
+                let info = self.state.cpu_power.amd_snapshot();
+                if !info.available {
+                    self.cpu_power_error = Some("AMD diagnostics unavailable".to_string());
+                    self.mark_dirty();
+                    return Some(Task::none());
+                }
+                Some(iced::clipboard::write(info.diagnostics_text()))
+            }
+            Message::AmdApply => {
+                if self.amd_preview {
+                    self.cpu_power_error = Some("AMD preview mode: writes disabled".to_string());
+                    self.mark_dirty();
+                    return Some(Task::none());
+                }
+                if !self.state.system.amd_cpu.load(Ordering::Acquire) || self.amd_apply_busy {
+                    return Some(Task::none());
+                }
+                if !self.amd_write_enabled() {
+                    self.cpu_power_error = Some("Enable experimental AMD writes first".to_string());
+                    self.mark_dirty();
+                    return Some(Task::none());
+                }
+                self.amd_apply_failures = 0;
+                let profile = match self.parse_amd_profile() {
+                    Ok(profile) => profile,
+                    Err(e) => {
+                        self.cpu_power_error = Some(e);
+                        self.mark_dirty();
+                        return Some(Task::none());
+                    }
+                };
+                let ac = self.amd_profile_is_ac;
+                // Apply always saves the selected profile; writing only happens
+                // when the selected source is active (or still unknown).
+                self.store_amd_profile(ac, profile);
+                self.save_config();
+                self.cpu_power_error = None;
+                if self
+                    .current_power_source()
+                    .is_some_and(|current| current != ac)
+                {
+                    self.cpu_power_status = Some(format!(
+                        "Saved {} AMD profile; it will apply on {}.",
+                        source_label(ac),
+                        source_label(ac)
+                    ));
+                    self.mark_dirty();
+                    return Some(Task::none());
+                }
+                self.amd_apply_busy = true;
+                let request = profile.to_request();
+                Some(self.amd_apply_task(ac, request))
+            }
+            Message::AmdReset => {
+                if self.amd_preview {
+                    self.cpu_power_error = Some("AMD preview mode: writes disabled".to_string());
+                    self.mark_dirty();
+                    return Some(Task::none());
+                }
+                if !self.state.system.amd_cpu.load(Ordering::Acquire) || self.amd_apply_busy {
+                    return Some(Task::none());
+                }
+                if !self.amd_write_enabled() {
+                    self.cpu_power_error = Some("Enable experimental AMD writes first".to_string());
+                    self.mark_dirty();
+                    return Some(Task::none());
+                }
+                let ac = self
+                    .current_power_source()
+                    .unwrap_or(self.amd_profile_is_ac);
+                let Some(initial) = self.saved_amd_initial(ac) else {
+                    self.cpu_power_error =
+                        Some(format!("No {} AMD baseline captured yet", source_label(ac)));
+                    self.mark_dirty();
+                    return Some(Task::none());
+                };
+                self.amd_apply_busy = true;
+                self.amd_reset_disable_keep = true;
+                self.amd_apply_failures = 0;
+                self.cpu_power_error = None;
+                Some(self.amd_apply_task(ac, initial.to_request()))
+            }
+            Message::AmdApplied(ac, result) => {
+                self.amd_apply_busy = false;
+                match result {
+                    Ok(info) => {
+                        let info = info.clone();
+                        self.amd_fields_primed = true;
+                        self.amd_apply_failures = 0;
+                        self.amd_active_source = Some(*ac);
+                        self.amd_last_reassert_ms = crate::util::monotonic_ms();
+                        if self.amd_reset_disable_keep {
+                            self.amd_reset_disable_keep = false;
+                            self.mutate_config(|cfg| cfg.cpu_power.keep_limits = false);
+                            self.save_config();
+                            self.cpu_power_status =
+                                Some("Reset complete; keep-alive off.".to_string());
+                        } else {
+                            self.cpu_power_status =
+                                Some(format!("{} AMD profile applied.", source_label(*ac)));
+                        }
+                        if self.amd_profile_is_ac == *ac {
+                            self.apply_amd_fields_from_snapshot(&info);
+                        }
+                        self.state.cpu_power.set_amd_info(info);
+                        self.cpu_power_error = None;
+                    }
+                    Err(e) => {
+                        self.amd_reset_disable_keep = false;
+                        error!("AMD power apply failed: {}", e);
+                        self.amd_apply_failures = self.amd_apply_failures.saturating_add(1);
+                        if self.amd_apply_failures >= 3 {
+                            self.cpu_power_status = Some(
+                                "AMD auto-apply failed 3 times; press Apply to retry.".to_string(),
+                            );
+                        }
+                        self.cpu_power_error = Some(e.to_string());
+                    }
+                }
+                self.mark_dirty();
+                Some(Task::none())
+            }
+            Message::AmdProfileSourceChanged(ac) => {
+                self.amd_profile_is_ac = *ac;
+                self.amd_profile_user_selected = true;
+                self.cpu_power_status = None;
+                self.cpu_power_error = None;
+                self.load_amd_fields_for_source();
+                self.mark_dirty();
+                Some(Task::none())
+            }
             Message::CpuPowerProfileSourceChanged(ac) => {
                 self.pl_profile_is_ac = *ac;
                 self.pl_profile_user_selected = true;
@@ -330,6 +495,46 @@ impl App {
                 Some(Task::none())
             }
             Message::CpuPowerSyncStart => {
+                if self.state.system.amd_cpu.load(Ordering::Acquire) {
+                    if self.amd_preview {
+                        self.cpu_power_error =
+                            Some("AMD preview mode: writes disabled".to_string());
+                        self.mark_dirty();
+                        return Some(Task::none());
+                    }
+                    if self.amd_apply_busy || !self.state.cpu_power.amd_snapshot().available {
+                        return Some(Task::none());
+                    }
+                    if !self.amd_write_enabled() {
+                        self.cpu_power_error =
+                            Some("Enable experimental AMD writes first".to_string());
+                        self.mark_dirty();
+                        return Some(Task::none());
+                    }
+                    let ac = self
+                        .current_power_source()
+                        .unwrap_or(self.amd_profile_is_ac);
+                    let profile = self
+                        .saved_amd_profile(ac)
+                        .or_else(|| self.saved_amd_initial(ac))
+                        .or_else(|| self.parse_amd_profile().ok());
+                    let Some(profile) = profile else {
+                        self.cpu_power_error = Some("Enter valid AMD limits first".to_string());
+                        self.mark_dirty();
+                        return Some(Task::none());
+                    };
+                    self.store_amd_profile(ac, profile);
+                    self.mutate_config(|cfg| cfg.cpu_power.keep_limits = true);
+                    self.save_config();
+                    self.amd_profile_is_ac = ac;
+                    self.amd_profile_user_selected = true;
+                    self.amd_apply_busy = true;
+                    self.amd_last_reassert_ms = crate::util::monotonic_ms();
+                    self.amd_apply_failures = 0;
+                    self.cpu_power_error = None;
+                    self.cpu_power_status = Some("AMD keep-alive on.".to_string());
+                    return Some(self.amd_apply_task(ac, profile.to_request()));
+                }
                 if !self.cpu_power_supported() || !self.state.cpu_power.snapshot().available {
                     return Some(Task::none());
                 }
@@ -381,6 +586,16 @@ impl App {
                 Some(self.apply_profile_task(ac, params, intent))
             }
             Message::CpuPowerSyncStop => {
+                if self.state.system.amd_cpu.load(Ordering::Acquire) {
+                    self.mutate_config(|cfg| cfg.cpu_power.keep_limits = false);
+                    self.save_config();
+                    self.amd_active_source = None;
+                    self.amd_apply_busy = false;
+                    self.amd_apply_failures = 0;
+                    self.cpu_power_status = Some("AMD keep-alive off.".to_string());
+                    self.mark_dirty();
+                    return Some(Task::none());
+                }
                 if !self.cpu_power_supported() {
                     return Some(Task::none());
                 }
@@ -493,6 +708,24 @@ impl App {
 
 fn source_label(ac: bool) -> &'static str {
     if ac { "AC" } else { "Battery" }
+}
+
+fn mock_amd_profile(ac: bool) -> crate::types::AmdPowerProfile {
+    if ac {
+        crate::types::AmdPowerProfile {
+            stapm_watts: 25.0,
+            fast_watts: 45.0,
+            slow_watts: 35.0,
+            tctl_c: 90.0,
+        }
+    } else {
+        crate::types::AmdPowerProfile {
+            stapm_watts: 15.0,
+            fast_watts: 30.0,
+            slow_watts: 25.0,
+            tctl_c: 85.0,
+        }
+    }
 }
 
 /// Sentinel returned when the power source changes while a profile write is
@@ -949,6 +1182,167 @@ impl App {
     /// Reset completion, module events), never on the background poll, so
     /// in-progress typing is never clobbered while the card always shows
     /// the latest hardware values after hardware-changing operations.
+    fn amd_write_enabled(&self) -> bool {
+        crate::util::read_lock(&self.state.lifecycle.config)
+            .cpu_power
+            .amd_write_experimental
+    }
+
+    fn saved_amd_profile(&self, ac: bool) -> Option<crate::types::AmdPowerProfile> {
+        if self.amd_preview_full {
+            return Some(mock_amd_profile(ac));
+        }
+        crate::util::read_lock(&self.state.lifecycle.config)
+            .cpu_power
+            .amd_profile(ac)
+            .copied()
+    }
+
+    fn saved_amd_initial(&self, ac: bool) -> Option<crate::types::AmdPowerProfile> {
+        if self.amd_preview_full {
+            return Some(mock_amd_profile(ac));
+        }
+        crate::util::read_lock(&self.state.lifecycle.config)
+            .cpu_power
+            .amd_initial(ac)
+            .copied()
+    }
+
+    fn store_amd_profile(&mut self, ac: bool, profile: crate::types::AmdPowerProfile) {
+        self.mutate_config(|cfg| *cfg.cpu_power.amd_profile_mut(ac) = Some(profile));
+    }
+
+    fn parse_amd_profile(&self) -> Result<crate::types::AmdPowerProfile, String> {
+        let parse = |name: &str, raw: &str| {
+            raw.parse::<f64>()
+                .map_err(|_| format!("{name} is not a valid number"))
+        };
+        let profile = crate::types::AmdPowerProfile {
+            stapm_watts: parse("STAPM", &self.amd_stapm_edit)?,
+            fast_watts: parse("PPT Fast", &self.amd_fast_edit)?,
+            slow_watts: parse("PPT Slow", &self.amd_slow_edit)?,
+            tctl_c: parse("Tctl", &self.amd_tctl_edit)?,
+        };
+        if !profile.is_valid() {
+            return Err("AMD limits out of range (5-150 W, Tctl 40-105 °C)".to_string());
+        }
+        Ok(profile)
+    }
+
+    fn apply_amd_fields_from_snapshot(&mut self, info: &crate::cpu_power::AmdPowerInfo) {
+        self.amd_stapm_edit = format!("{:.1}", info.stapm_w);
+        self.amd_fast_edit = format!("{:.1}", info.fast_w);
+        self.amd_slow_edit = format!("{:.1}", info.slow_w);
+        self.amd_tctl_edit = format!("{:.1}", info.tctl_c);
+    }
+
+    fn show_amd_fields(&mut self, profile: &crate::types::AmdPowerProfile) {
+        self.amd_stapm_edit = format!("{:.1}", profile.stapm_watts);
+        self.amd_fast_edit = format!("{:.1}", profile.fast_watts);
+        self.amd_slow_edit = format!("{:.1}", profile.slow_watts);
+        self.amd_tctl_edit = format!("{:.1}", profile.tctl_c);
+    }
+
+    fn load_amd_fields_for_source(&mut self) {
+        if let Some(profile) = self
+            .saved_amd_profile(self.amd_profile_is_ac)
+            .or_else(|| self.saved_amd_initial(self.amd_profile_is_ac))
+        {
+            self.show_amd_fields(&profile);
+        } else {
+            let info = self.state.cpu_power.amd_snapshot();
+            if info.available {
+                self.apply_amd_fields_from_snapshot(&info);
+            }
+        }
+    }
+
+    fn amd_apply_task(&self, ac: bool, request: crate::cpu_power::LimitRequest) -> Task<Message> {
+        Task::perform(
+            async move {
+                crate::util::spawn_blocking_with_timeout(
+                    crate::util::PAWNIO_SYNC_TIMEOUT,
+                    move || crate::cpu_power::apply_amd_limits(request),
+                )
+                .await
+                .unwrap_or_else(Err)
+            },
+            move |result| Message::AmdApplied(ac, result),
+        )
+    }
+
+    /// Captures each source's first PM-table values, follows the live source,
+    /// and primes the edit boxes once. Runs every tick.
+    pub(crate) fn prime_amd_fields(&mut self) {
+        if !self.state.system.amd_cpu.load(Ordering::Acquire) {
+            return;
+        }
+        if self.amd_preview {
+            if !self.amd_fields_primed {
+                let info = self.state.cpu_power.amd_snapshot();
+                self.apply_amd_fields_from_snapshot(&info);
+                self.amd_fields_primed = true;
+                self.mark_dirty();
+            }
+            return;
+        }
+        let info = self.state.cpu_power.amd_snapshot();
+        if !info.available {
+            self.amd_fields_primed = false;
+            return;
+        }
+        if let Some(ac) = self.current_power_source() {
+            if self.saved_amd_initial(ac).is_none() {
+                let profile = crate::types::AmdPowerProfile::from_info(&info);
+                if profile.is_valid() {
+                    self.mutate_config(|cfg| *cfg.cpu_power.amd_initial_mut(ac) = Some(profile));
+                    self.save_config();
+                }
+            }
+            if !self.amd_profile_user_selected {
+                self.amd_profile_is_ac = ac;
+            }
+        }
+        if !self.amd_fields_primed {
+            self.load_amd_fields_for_source();
+            self.amd_fields_primed = true;
+            self.mark_dirty();
+        }
+    }
+
+    /// Applies the saved AMD profile on startup, source changes, and every
+    /// five minutes while the keep-alive toggle is on. Requires the explicit
+    /// experimental-write opt-in.
+    pub(crate) fn maybe_auto_apply_amd(&mut self, now_ms: u64) -> Option<Task<Message>> {
+        if self.amd_preview
+            || !self.state.system.amd_cpu.load(Ordering::Acquire)
+            || !self.keep_limits_enabled()
+            || !self.amd_write_enabled()
+            || self.amd_apply_busy
+            || self.amd_apply_failures >= 3
+        {
+            return None;
+        }
+        let info = self.state.cpu_power.amd_snapshot();
+        if !info.available {
+            return None;
+        }
+        let ac = self.current_power_source()?;
+        const REASSERT_MS: u64 = 5 * 60 * 1000;
+        if self.amd_active_source == Some(ac)
+            && now_ms.saturating_sub(self.amd_last_reassert_ms) < REASSERT_MS
+        {
+            return None;
+        }
+        let profile = self
+            .saved_amd_profile(ac)
+            .or_else(|| self.saved_amd_initial(ac))?;
+        self.amd_apply_busy = true;
+        self.amd_last_reassert_ms = now_ms;
+        self.cpu_power_error = None;
+        Some(self.amd_apply_task(ac, profile.to_request()))
+    }
+
     fn apply_edit_fields_from_snapshot(&mut self, info: &crate::cpu_power::CpuPowerInfo) {
         let (pl1, pl2, p1en, p2en, p1cl, p2cl, t1, _t2) = info.init_edit_fields();
         self.pl1_edit = pl1;

@@ -115,6 +115,8 @@ impl App {
             None
         };
 
+        self.prime_amd_fields();
+
         let now_ms = crate::util::monotonic_ms();
         let reset_retry_at = self
             .state
@@ -238,6 +240,7 @@ impl App {
         // profile for the current source on startup and whenever AC↔battery
         // changes. Runs after tray upkeep for the same reason as the reset.
         let mut profile_task = self.maybe_auto_apply_profile(now_ms);
+        let mut amd_task = self.maybe_auto_apply_amd(now_ms);
 
         // AC→battery: reset PL1/PL2 to BIOS defaults. Runs after the tray
         // upkeep so a reset tick never skips tray initialization. The pending
@@ -274,6 +277,9 @@ impl App {
                 }
                 if let Some(profile) = profile_task.take() {
                     tasks = Task::batch([tasks, profile]);
+                }
+                if let Some(amd) = amd_task.take() {
+                    tasks = Task::batch([tasks, amd]);
                 }
                 return tasks;
             }
@@ -319,6 +325,9 @@ impl App {
         }
         if let Some(profile) = profile_task.take() {
             tasks = Task::batch([tasks, profile]);
+        }
+        if let Some(amd) = amd_task.take() {
+            tasks = Task::batch([tasks, amd]);
         }
         tasks
     }

@@ -7,7 +7,7 @@ mod read;
 mod sync;
 mod types;
 
-pub use amd::{AmdPowerInfo, read_amd_power};
+pub use amd::{AmdPowerInfo, LimitRequest, apply_amd_limits, read_amd_power};
 pub use bios::{BiosDefaults, publish_ac_snapshot, read_ac_present};
 pub use ffi::{
     install_pawnio, invalidate_authenticode, is_pawnio_installed, pawnio_version, reset_dll_fns,
@@ -152,6 +152,12 @@ impl CpuPowerState {
 
     pub fn amd_snapshot(&self) -> Arc<AmdPowerInfo> {
         Arc::clone(&read_lock(&self.amd_info))
+    }
+
+    pub fn set_amd_info(&self, info: AmdPowerInfo) {
+        with_write_lock(&self.amd_info, |guard| {
+            *guard = Arc::new(info);
+        });
     }
 
     pub fn refresh(&self) {

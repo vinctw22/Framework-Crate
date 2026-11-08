@@ -219,6 +219,26 @@ impl Config {
                 profile.pl1_time_s = profile.pl1_time_s.min(crate::cpu_power::LIMIT_MAX_TIME_S);
             }
         }
+        // Drop unusable AMD profiles/initials; the write path validates again.
+        for (is_ac, initial) in [(true, false), (false, false), (true, true), (false, true)] {
+            let profile = if initial {
+                self.cpu_power.amd_initial(is_ac)
+            } else {
+                self.cpu_power.amd_profile(is_ac)
+            };
+            if profile.is_some_and(|p| !p.is_valid()) {
+                warn!(
+                    "Dropping invalid {} AMD {} power profile from config",
+                    if is_ac { "AC" } else { "battery" },
+                    if initial { "initial" } else { "user" }
+                );
+                if initial {
+                    *self.cpu_power.amd_initial_mut(is_ac) = None;
+                } else {
+                    *self.cpu_power.amd_profile_mut(is_ac) = None;
+                }
+            }
+        }
         // Record that load-time migrations have run for this file.
         self.version = CONFIG_VERSION;
     }
@@ -583,6 +603,9 @@ impl PowerProfile {
 pub struct CpuPowerConfig {
     #[serde(default)]
     pub keep_limits: bool,
+    /// Explicit opt-in for the still-unverified AMD write path.
+    #[serde(default)]
+    pub amd_write_experimental: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ac: Option<PowerProfile>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -595,6 +618,16 @@ pub struct CpuPowerConfig {
     /// Same as `ac_initial`, captured while on battery.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub battery_initial: Option<PowerProfile>,
+    /// AMD user profiles (STAPM / PPT Fast / PPT Slow / Tctl).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub amd_ac: Option<AmdPowerProfile>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub amd_battery: Option<AmdPowerProfile>,
+    /// First PM-table values seen per source; machine-local baselines.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub amd_ac_initial: Option<AmdPowerProfile>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub amd_battery_initial: Option<AmdPowerProfile>,
 }
 
 impl CpuPowerConfig {
@@ -623,6 +656,91 @@ impl CpuPowerConfig {
             &mut self.ac_initial
         } else {
             &mut self.battery_initial
+        }
+    }
+
+    pub fn amd_profile(&self, ac: bool) -> Option<&AmdPowerProfile> {
+        if ac {
+            self.amd_ac.as_ref()
+        } else {
+            self.amd_battery.as_ref()
+        }
+    }
+
+    pub fn amd_profile_mut(&mut self, ac: bool) -> &mut Option<AmdPowerProfile> {
+        if ac {
+            &mut self.amd_ac
+        } else {
+            &mut self.amd_battery
+        }
+    }
+
+    pub fn amd_initial(&self, ac: bool) -> Option<&AmdPowerProfile> {
+        if ac {
+            self.amd_ac_initial.as_ref()
+        } else {
+            self.amd_battery_initial.as_ref()
+        }
+    }
+
+    pub fn amd_initial_mut(&mut self, ac: bool) -> &mut Option<AmdPowerProfile> {
+        if ac {
+            &mut self.amd_ac_initial
+        } else {
+            &mut self.amd_battery_initial
+        }
+    }
+}
+
+/// Saved AMD power profile. Values are the four SMU controls.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
+pub struct AmdPowerProfile {
+    #[serde(default)]
+    pub stapm_watts: f64,
+    #[serde(default)]
+    pub fast_watts: f64,
+    #[serde(default)]
+    pub slow_watts: f64,
+    #[serde(default)]
+    pub tctl_c: f64,
+}
+
+impl Default for AmdPowerProfile {
+    fn default() -> Self {
+        Self {
+            stapm_watts: 25.0,
+            fast_watts: 45.0,
+            slow_watts: 35.0,
+            tctl_c: 90.0,
+        }
+    }
+}
+
+impl AmdPowerProfile {
+    pub fn is_valid(&self) -> bool {
+        let watts = |v: f64| v.is_finite() && (5.0..=150.0).contains(&v);
+        watts(self.stapm_watts)
+            && watts(self.fast_watts)
+            && watts(self.slow_watts)
+            && self.tctl_c.is_finite()
+            && (40.0..=105.0).contains(&self.tctl_c)
+    }
+
+    pub fn from_info(info: &crate::cpu_power::AmdPowerInfo) -> Self {
+        Self {
+            stapm_watts: f64::from(info.stapm_w).round(),
+            fast_watts: f64::from(info.fast_w).round(),
+            slow_watts: f64::from(info.slow_w).round(),
+            tctl_c: f64::from(info.tctl_c).round(),
+        }
+    }
+
+    pub fn to_request(self) -> crate::cpu_power::LimitRequest {
+        crate::cpu_power::LimitRequest {
+            stapm_w: self.stapm_watts,
+            fast_w: self.fast_watts,
+            slow_w: self.slow_watts,
+            tctl_c: self.tctl_c,
         }
     }
 }

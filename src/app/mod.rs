@@ -182,6 +182,16 @@ pub enum Message {
     CpuPowerSyncStopped,
     CpuPowerProfileSourceChanged(bool),
     CpuPowerProfileApplied(bool, u64, Result<(), String>),
+    AmdStapmChanged(String),
+    AmdFastChanged(String),
+    AmdSlowChanged(String),
+    AmdTctlChanged(String),
+    AmdApply,
+    AmdApplied(bool, Result<crate::cpu_power::AmdPowerInfo, String>),
+    AmdReset,
+    AmdProfileSourceChanged(bool),
+    AmdWriteEnabledToggled(bool),
+    AmdCopyDiagnostics,
     RefreshCpuPower,
     CpuPowerSyncStart,
     CpuPowerSyncStop,
@@ -309,6 +319,24 @@ pub struct App {
     /// hardware appears without a refresh message (background polls never
     /// send one, so the boxes would otherwise sit empty).
     pub pl_fields_primed: bool,
+    pub amd_stapm_edit: String,
+    pub amd_fast_edit: String,
+    pub amd_slow_edit: String,
+    pub amd_tctl_edit: String,
+    pub amd_fields_primed: bool,
+    pub amd_apply_busy: bool,
+    pub amd_profile_is_ac: bool,
+    pub amd_profile_user_selected: bool,
+    /// Last source whose AMD profile was applied; None until first apply.
+    pub amd_active_source: Option<bool>,
+    pub amd_last_reassert_ms: u64,
+    pub amd_reset_disable_keep: bool,
+    /// Consecutive auto-apply failures; capped like the Intel profile path.
+    pub amd_apply_failures: u32,
+    /// Debug-only AMD UI preview driven by FRAMEWORK_AMD_UI_PREVIEW=1.
+    pub amd_preview: bool,
+    /// `FRAMEWORK_AMD_UI_PREVIEW=full` shows the write controls too.
+    pub amd_preview_full: bool,
     pub cpu_power_error: Option<String>,
     pub ec_op_error: Option<String>,
     pub pl_custom_applied: Arc<std::sync::atomic::AtomicBool>,
@@ -358,6 +386,13 @@ impl App {
         let poll_ms = loaded_config.telemetry.poll_ms;
         let ui_refresh_ms = loaded_config.telemetry.ui_refresh_ms;
 
+        let amd_preview_value = cfg!(debug_assertions)
+            .then(|| std::env::var("FRAMEWORK_AMD_UI_PREVIEW").ok())
+            .flatten();
+        let amd_preview = amd_preview_value.is_some();
+        let amd_preview_full = amd_preview_value
+            .as_deref()
+            .is_some_and(|value| value.eq_ignore_ascii_case("full"));
         let state = AppState {
             system: SystemState {
                 cli_available: Arc::new(AtomicBool::new(false)),
@@ -369,7 +404,7 @@ impl App {
                     crate::cli::ec_wrapper::detect_platform(),
                 ))),
                 intel_cpu: Arc::new(AtomicBool::new(system_info::is_intel_cpu())),
-                amd_cpu: Arc::new(AtomicBool::new(system_info::is_amd_cpu())),
+                amd_cpu: Arc::new(AtomicBool::new(amd_preview || system_info::is_amd_cpu())),
             },
             fan: FanState {
                 mode: Arc::new(AtomicU64::new(loaded_config.fan.mode.to_u8() as u64)),
@@ -472,6 +507,28 @@ impl App {
                 .push(config_rx);
         }
 
+        if amd_preview {
+            let mut pm_table = vec![0.0f32; 32];
+            pm_table[0] = 25.0;
+            pm_table[2] = 45.0;
+            pm_table[4] = 35.0;
+            pm_table[16] = 90.0;
+            state
+                .cpu_power
+                .set_amd_info(crate::cpu_power::AmdPowerInfo {
+                    available: true,
+                    error: None,
+                    code_name: crate::cpu_power::amd::AmdCodeName::Phoenix,
+                    smu_version: 0x0040_0001,
+                    pm_table_version: 0x004C_0008,
+                    stapm_w: 25.0,
+                    fast_w: 45.0,
+                    slow_w: 35.0,
+                    tctl_c: 90.0,
+                    apu_slow_w: Some(35.0),
+                    pm_table,
+                });
+        }
         let app = App {
             cli_present: false,
             startup_error: None,
@@ -555,6 +612,20 @@ impl App {
             pl_capture_in_flight: false,
             cpu_power_status: None,
             pl_fields_primed: false,
+            amd_stapm_edit: String::new(),
+            amd_fast_edit: String::new(),
+            amd_slow_edit: String::new(),
+            amd_tctl_edit: String::new(),
+            amd_fields_primed: false,
+            amd_apply_busy: false,
+            amd_profile_is_ac: crate::cpu_power::read_ac_present() != Some(false),
+            amd_profile_user_selected: false,
+            amd_active_source: None,
+            amd_last_reassert_ms: 0,
+            amd_reset_disable_keep: false,
+            amd_apply_failures: 0,
+            amd_preview,
+            amd_preview_full,
             cpu_power_error: None,
             ec_op_error: None,
             pl_custom_applied: Arc::new(std::sync::atomic::AtomicBool::new(

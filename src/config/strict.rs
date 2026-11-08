@@ -73,6 +73,8 @@ pub fn import_strict(content: &str) -> Result<Config, String> {
     // observation.
     config.cpu_power.ac_initial = None;
     config.cpu_power.battery_initial = None;
+    config.cpu_power.amd_ac_initial = None;
+    config.cpu_power.amd_battery_initial = None;
     Ok(config)
 }
 
@@ -152,10 +154,15 @@ fn check_nested_unknown(table: &toml::Table) -> Result<(), String> {
         "cpu_power",
         &[
             "keep_limits",
+            "amd_write_experimental",
             "ac",
             "battery",
             "ac_initial",
             "battery_initial",
+            "amd_ac",
+            "amd_battery",
+            "amd_ac_initial",
+            "amd_battery_initial",
         ],
         &mut unknown,
     );
@@ -173,6 +180,19 @@ fn check_nested_unknown(table: &toml::Table) -> Result<(), String> {
                 "pl2_enabled",
                 "pl2_clamped",
             ],
+            &mut unknown,
+        );
+    }
+    for source in [
+        "amd_ac",
+        "amd_battery",
+        "amd_ac_initial",
+        "amd_battery_initial",
+    ] {
+        check(
+            cpu_power_tbl.and_then(|t| t.get(source)),
+            &format!("cpu_power.{source}"),
+            &["stapm_watts", "fast_watts", "slow_watts", "tctl_c"],
             &mut unknown,
         );
     }
@@ -327,6 +347,8 @@ pub fn export_to_path(config: &Config, dest: &std::path::Path) -> Result<(), Str
     let mut portable = config.clone();
     portable.cpu_power.ac_initial = None;
     portable.cpu_power.battery_initial = None;
+    portable.cpu_power.amd_ac_initial = None;
+    portable.cpu_power.amd_battery_initial = None;
     let mut content = render_config_toml(&portable)?;
     if let Some(origin) = local_product_name() {
         // The stamp must stay top-level: anything after a [table] header
@@ -465,6 +487,27 @@ mod tests {
         )
         .unwrap_err();
         assert!(err.contains("cpu_power.battery.evil"), "{err}");
+    }
+
+    #[test]
+    fn import_strict_accepts_amd_profiles_and_clears_initials() {
+        let cfg = crate::config::import_strict(
+            "version = 2\n[cpu_power.amd_ac]\nstapm_watts = 25.0\nfast_watts = 45.0\nslow_watts = 35.0\ntctl_c = 90.0\n[cpu_power.amd_battery]\nstapm_watts = 15.0\nfast_watts = 30.0\nslow_watts = 25.0\ntctl_c = 85.0\n[cpu_power.amd_ac_initial]\nstapm_watts = 25.0\nfast_watts = 45.0\nslow_watts = 35.0\ntctl_c = 90.0\n",
+        )
+        .unwrap();
+        assert_eq!(cfg.cpu_power.amd_ac.unwrap().fast_watts, 45.0);
+        assert_eq!(cfg.cpu_power.amd_battery.unwrap().stapm_watts, 15.0);
+        // PM-table baselines are local-only.
+        assert!(cfg.cpu_power.amd_ac_initial.is_none());
+    }
+
+    #[test]
+    fn import_strict_rejects_unknown_amd_profile_field() {
+        let err = crate::config::import_strict(
+            "version = 2\n[cpu_power.amd_ac]\nstapm_watts = 25.0\nbogus = 1\n",
+        )
+        .unwrap_err();
+        assert!(err.contains("cpu_power.amd_ac.bogus"), "{err}");
     }
 
     #[test]
