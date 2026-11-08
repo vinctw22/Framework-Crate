@@ -91,6 +91,9 @@ pub struct CpuPowerInfo {
     /// never affect availability or any write decision; `None` hides the row.
     pub turbo_limit_ghz: Option<f64>,
     pub turbo_now_ghz: Option<f64>,
+    /// Instantaneous package power derived from MSR 0x611 energy deltas.
+    /// `None` until a second sample arrives or when the firmware hides it.
+    pub package_watts: Option<f64>,
     /// True when the MMIO mirror was read successfully. Distinguishes a
     /// genuine 0 W/disabled mirror from an unavailable IntelMCHBAR module.
     pub mmio_available: bool,

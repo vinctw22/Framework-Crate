@@ -451,23 +451,33 @@ pub(crate) fn cpu_power_section(snap: &ViewSnapshot) -> Element<'_, Message> {
     } else {
         pal.header
     };
-    content = content.push(
-        row![
-            text("  PL1:".to_string()).size(FONT_BODY),
-            text(format!("{:.1}W", info.effective_pl1()))
-                .size(FONT_BODY)
-                .style(move |_theme| iced::widget::text::Style {
-                    color: Some(pl1_color)
-                }),
-            text("  PL2:".to_string()).size(FONT_BODY),
-            text(format!("{:.1}W", info.effective_pl2()))
-                .size(FONT_BODY)
-                .style(move |_theme| iced::widget::text::Style {
-                    color: Some(pl2_color)
-                }),
-        ]
-        .spacing(4),
-    );
+    let mut limit_row = row![
+        text("  PL1:".to_string()).size(FONT_BODY),
+        text(format!("{:.1}W", info.effective_pl1()))
+            .size(FONT_BODY)
+            .style(move |_theme| iced::widget::text::Style {
+                color: Some(pl1_color)
+            }),
+        text("  PL2:".to_string()).size(FONT_BODY),
+        text(format!("{:.1}W", info.effective_pl2()))
+            .size(FONT_BODY)
+            .style(move |_theme| iced::widget::text::Style {
+                color: Some(pl2_color)
+            }),
+    ]
+    .spacing(4);
+    if let Some(package_watts) = info.package_watts {
+        limit_row = limit_row
+            .push(text("  Package:".to_string()).size(FONT_BODY))
+            .push(
+                text(format!("{:.1}W", package_watts))
+                    .size(FONT_BODY)
+                    .style(move |_theme| iced::widget::text::Style {
+                        color: Some(pal.header),
+                    }),
+            );
+    }
+    content = content.push(limit_row);
     // Turbo telemetry is display-only: current/limit, whichever was readable.
     if let Some(t) = turbo_text(info.turbo_now_ghz, info.turbo_limit_ghz) {
         content = content.push(

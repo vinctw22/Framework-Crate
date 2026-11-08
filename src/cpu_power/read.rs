@@ -1,5 +1,6 @@
 //! Reading the current PL1/PL2 limits through the PawnIO modules.
 
+use std::time::Instant;
 use tracing::debug;
 
 use super::ffi::{exec_ioctl, open_handle};
@@ -22,6 +23,60 @@ pub(super) fn decode_rapl_units(raw: u64) -> (f64, f64) {
     let time_unit = 1.0 / (1u32 << time_bits) as f64;
     (power_unit, time_unit)
 }
+
+/// RAPL energy unit from MSR 0x606[12:8], in Joules per counter tick.
+pub(super) fn decode_energy_unit(raw: u64) -> f64 {
+    let esu = ((raw >> 8) & 0x1F) as i32;
+    2f64.powi(-esu)
+}
+
+#[derive(Default)]
+struct PackagePowerState {
+    last_raw: u32,
+    last_at: Option<Instant>,
+    last_watts: Option<f64>,
+}
+
+impl PackagePowerState {
+    fn sample(&mut self, raw: u32, energy_unit: f64, now: Instant) -> Option<f64> {
+        let Some(previous_at) = self.last_at else {
+            self.last_raw = raw;
+            self.last_at = Some(now);
+            return None;
+        };
+        let elapsed = now
+            .checked_duration_since(previous_at)
+            .map(|d| d.as_secs_f64())
+            .unwrap_or(0.0);
+        if elapsed <= 0.01 {
+            return self.last_watts;
+        }
+        if elapsed > 60.0 {
+            self.last_raw = raw;
+            self.last_at = Some(now);
+            self.last_watts = None;
+            return None;
+        }
+        let delta = raw.wrapping_sub(self.last_raw);
+        self.last_raw = raw;
+        self.last_at = Some(now);
+        let watts = f64::from(delta) * energy_unit / elapsed;
+        if watts.is_finite() {
+            self.last_watts = Some(watts);
+            self.last_watts
+        } else {
+            self.last_watts = None;
+            None
+        }
+    }
+}
+
+static PACKAGE_POWER: parking_lot::Mutex<PackagePowerState> =
+    parking_lot::Mutex::new(PackagePowerState {
+        last_raw: 0,
+        last_at: None,
+        last_watts: None,
+    });
 
 /// Reference clock for turbo ratios. Meteor Lake (and all recent client
 /// Intel CPUs) run BCLK at 100MHz.
@@ -73,11 +128,13 @@ pub(super) fn read_cpu_power() -> CpuPowerInfo {
 
     // Read MSR 0x606 for RAPL units; required to decode limits.
     let mut units_ok = false;
+    let mut energy_unit = None;
     if let Some(ref handle) = msr_handle {
         let mut out = [0u64; 1];
         match exec_ioctl(handle, "ioctl_read_msr", &[0x606], &mut out) {
             Ok(_) => {
                 (info.power_unit, info.time_unit) = decode_rapl_units(out[0]);
+                energy_unit = Some(decode_energy_unit(out[0]));
                 debug!(
                     "Power unit: {} W/unit, time unit: {} s/unit",
                     info.power_unit, info.time_unit
@@ -95,6 +152,22 @@ pub(super) fn read_cpu_power() -> CpuPowerInfo {
     }
     if !units_ok {
         return info;
+    }
+
+    // Optional package power from the energy counter (MSR 0x611). This is
+    // display-only: a missing/locked MSR must not make the limits unavailable.
+    if let (Some(unit), Some(handle)) = (energy_unit, msr_handle.as_ref()) {
+        let mut out = [0u64; 1];
+        match exec_ioctl(handle, "ioctl_read_msr", &[0x611], &mut out) {
+            Ok(_) => {
+                let now = Instant::now();
+                info.package_watts = PACKAGE_POWER.lock().sample(out[0] as u32, unit, now);
+                debug!("Package power: {:?} W", info.package_watts);
+            }
+            Err(reason) => {
+                debug!("MSR 0x611 unavailable, package power unknown: {reason:?}");
+            }
+        }
     }
 
     // Read MSR 0x614 for the firmware-supported time-window range. Optional:
@@ -240,6 +313,37 @@ mod tests {
         let (power_unit, time_unit) = decode_rapl_units(raw);
         assert!((power_unit - 0.125).abs() < 1e-12);
         assert!((time_unit - 1.0 / 1024.0).abs() < 1e-12);
+    }
+
+    #[test]
+    fn decode_energy_unit_uses_esu_bits() {
+        assert!((decode_energy_unit(14u64 << 8) - 1.0 / 16384.0).abs() < 1e-12);
+        assert_eq!(decode_energy_unit(0), 1.0);
+    }
+
+    #[test]
+    fn package_power_uses_energy_delta_and_handles_wrap() {
+        use std::time::Duration;
+
+        let mut state = PackagePowerState::default();
+        let unit = 1.0 / 16384.0;
+        let t0 = Instant::now();
+        assert_eq!(state.sample(1000, unit, t0), None);
+
+        let t1 = t0 + Duration::from_secs(1);
+        let watts = state.sample(1000 + 16384, unit, t1).expect("second sample");
+        assert!((watts - 1.0).abs() < 1e-9, "watts={watts}");
+        assert_eq!(state.sample(1000 + 16384, unit, t1), Some(watts));
+
+        let mut wrapped = PackagePowerState::default();
+        assert_eq!(wrapped.sample(u32::MAX - 8191, unit, t0), None);
+        let watts = wrapped.sample(8191, unit, t1).expect("wrapped sample");
+        assert!((watts - 0.999_938_964_843_75).abs() < 1e-6, "watts={watts}");
+
+        assert_eq!(
+            wrapped.sample(8191, unit, t1 + Duration::from_secs(61)),
+            None
+        );
     }
 
     #[test]
