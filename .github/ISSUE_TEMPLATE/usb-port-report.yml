@@ -1,0 +1,117 @@
+name: USB expansion card misclassification
+description: Report a port that shows the wrong USB-C / USB-A / HDMI / DP label
+title: "[Ports] "
+labels: ["usb-ports", "hardware-test"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Port type is inferred from EC PD state. Please include the raw Ports Debug Mode
+        output from the About page; it is the data needed to fix the classification.
+        Use the [Framework slot-functionality KB](https://knowledgebase.frame.work/en_us/expansion-card-slot-functionality-r1Wsh4_oWg)
+        to identify your exact card generation and slot position.
+        Do not include serial numbers or other private data.
+
+  - type: input
+    id: machine
+    attributes:
+      label: Framework model and BIOS/EC firmware
+      placeholder: e.g. Framework Laptop 13 (AMD Ryzen 7040 Series), BIOS 03.05, EC marigold-3.0.5
+    validations:
+      required: true
+
+  - type: input
+    id: app_version
+    attributes:
+      label: Framework Crate version
+      placeholder: e.g. 0.9.6
+    validations:
+      required: true
+
+  - type: input
+    id: card
+    attributes:
+      label: Expansion card model and generation
+      description: |
+        Check your device's page in the [Framework KB](https://knowledgebase.frame.work/en_us/expansion-card-slot-functionality-r1Wsh4_oWg)
+        for the card name/generation.
+      placeholder: e.g. HDMI (2nd Gen), DisplayPort (2nd Gen), USB-A, Ethernet
+    validations:
+      required: true
+
+  - type: input
+    id: slot
+    attributes:
+      label: Slot position
+      description: |
+        Use the slot name from the Framework KB for your model, not just the app's
+        Port index. Include the app Port index too if it differs.
+      placeholder: e.g. left rear slot (Port 2), right front
+    validations:
+      required: true
+
+  - type: input
+    id: port
+    attributes:
+      label: App port index and expected card
+      placeholder: e.g. Port 2 should be HDMI, shows USB-A
+    validations:
+      required: true
+
+  - type: textarea
+    id: debug
+    attributes:
+      label: Ports Debug Mode output
+      description: |
+        About page → Ports Debug Mode → paste the raw role/watts/port rows here
+        (or attach a screenshot).
+      render: text
+    validations:
+      required: true
+
+  - type: dropdown
+    id: state
+    attributes:
+      label: When does the wrong label appear?
+      options:
+        - At boot with the card already inserted
+        - After hot-plugging the card
+        - After unplugging/replugging a device on the card
+        - After dock/undock
+        - Intermittently
+        - Always
+    validations:
+      required: true
+
+  - type: input
+    id: devices
+    attributes:
+      label: Devices connected to the card
+      placeholder: e.g. HDMI monitor + USB keyboard, or nothing
+    validations:
+      required: false
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      render: text
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant app.log lines
+      description: Paste lines mentioning PD, ports, or classification from `%APPDATA%\framework-crate\app.log`.
+      render: text
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: Data acknowledgement
+      options:
+        - label: I did not include serial numbers, tokens, or other private data.
+          required: true

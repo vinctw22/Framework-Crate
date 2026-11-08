@@ -57,7 +57,7 @@
 <li><strong>Per-fan curves lack multi-fan verification.</strong> Covered by mocked unit tests only — no Framework 16 / Desktop hardware was available. Single-fan machines use the exact pre-existing code path.</li>
 <li><strong>Crash keeps the last state.</strong> Orderly quit restores firmware fan control and flushes the charge limit, but a crash or kill bypasses that path: the EC keeps the last written fan duty until sleep, reboot, or the next launch.</li>
 <li><strong>Logoff handover is unreliable.</strong> On some Windows 11 elevated setups the session-end broadcast never reaches the tray window, so manual/curve duty can persist after sign-out. Use <strong>Restore Auto &amp; Exit</strong> before logging off when the fan is under manual/curve control.</li>
-<li><strong>HDMI/DP cards without DP-alt may be mislabeled.</strong> Port type is inferred from PD state; cards that omit DP-alt mode while drawing ~3–5 W can show the wrong label. Ports Debug Mode on the About page shows the raw role/watts.</li>
+<li><strong>HDMI/DP cards without DP-alt may be mislabeled.</strong> Port type is inferred from PD state; cards that omit DP-alt mode while drawing ~3–5 W can show the wrong label. Ports Debug Mode on the About page shows the raw role/watts; report a wrong label with the <a href="https://github.com/vinctw22/Framework-Crate/issues/new?template=usb-port-report.yml">USB port report template</a>.</li>
 </ul>
 
 <footer>

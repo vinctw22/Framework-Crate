@@ -333,7 +333,7 @@ selected_sensors = []
 ### 未解決
 
 - **AMD CPU Power 寫入為實驗性且需 opt-in**：AMD 卡片透過 RyzenSMU MP1/PSMU mailbox 寫入 STAPM／PPT Fast／PPT Slow／Tctl，再讀回 PM table，並支援 AC／Battery profiles 與 About keep-alive。寫入要勾選 **Enable experimental AMD writes**（設定中的 `amd_write_experimental`）才會啟用，**Copy diagnostics** 可匯出 PM table 供社群驗證。維護者沒有 AMD 硬體，因此尚未實機驗證；測試清單與 issue template 見 [Ryzen_Power_Testing.zh-TW.md](Ryzen_Power_Testing.zh-TW.md)（[English](Ryzen_Power_Testing.md)）。
-- **沒有 DP-alt 的 HDMI/DP 卡可能誤標**：這類卡可能在消耗 ~3–5W 時省略 DP-alt 模式；可用 About 頁的 Ports Debug Mode 查看原始 role／watts。
+- **沒有 DP-alt 的 HDMI/DP 卡可能誤標**：這類卡可能在消耗 ~3–5W 時省略 DP-alt 模式；可用 About 頁的 Ports Debug Mode 查看原始 role／watts，並用 [USB port 回報表單](https://github.com/vinctw22/Framework-Crate/issues/new?template=usb-port-report.yml) 回報。
 - **平台特定**：只在 Intel Core Ultra Series 1（Meteor Lake）Framework 筆電測試過；AMD RyzenSMU 支援為實驗性。
 - **逐風扇曲線仍需多風扇驗證**：逐風扇曲線（多風扇機種、Unified off）只有模擬 EC 的單元測試 — 沒有 Framework 16／Desktop 多風扇硬體可驗證實機行為。單風扇機種走完全相同的既有路徑。
 - **EC 驅動**：必須安裝 Framework EC kernel driver，`framework_lib` 才能與硬體通訊。

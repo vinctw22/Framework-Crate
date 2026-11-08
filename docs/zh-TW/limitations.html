@@ -57,7 +57,7 @@
 <li><strong>逐風扇曲線缺少多風扇驗證。</strong> 只有模擬 EC 的單元測試 — 沒有 Framework 16／Desktop 硬體。單風扇機種走完全相同的既有路徑。</li>
 <li><strong>崩潰會保留最後狀態。</strong> 正常退出會還原韌體風扇控制並 flush 充電上限；崩潰或強制終止會跳過該路徑，EC 會保留最後寫入的 fan duty，直到睡眠、重開機或下次啟動。</li>
 <li><strong>登出交接不可靠。</strong> 部分 Windows 11 提權環境不會把 session-end broadcast 送到托盤視窗，手動／曲線 duty 可能在登出後持續。風扇由手動／曲線控制時，登出前請使用 <strong>Restore Auto &amp; Exit</strong>。</li>
-<li><strong>沒有 DP-alt 的 HDMI/DP 卡可能誤標。</strong> 連接埠類型由 PD 狀態推斷；省略 DP-alt 又消耗 ~3–5 W 的卡可能顯示錯誤標籤。About 頁的 Ports Debug Mode 可看原始 role／watts。</li>
+<li><strong>沒有 DP-alt 的 HDMI/DP 卡可能誤標。</strong> 連接埠類型由 PD 狀態推斷；省略 DP-alt 又消耗 ~3–5 W 的卡可能顯示錯誤標籤。About 頁的 Ports Debug Mode 可看原始 role／watts；請用 <a href="https://github.com/vinctw22/Framework-Crate/issues/new?template=usb-port-report.yml">USB port 回報表單</a> 回報錯誤標籤。</li>
 </ul>
 
 <footer>
