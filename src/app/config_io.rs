@@ -103,7 +103,7 @@ impl App {
                         } else {
                             None
                         };
-                        self.apply_imported_config(&imported.config);
+                        let sync_stop = self.apply_imported_config(&imported.config);
                         if wizard_restore.is_some() {
                             // The import intentionally cancelled the run; do
                             // not leave its "aborted" line next to the success
@@ -123,8 +123,10 @@ impl App {
                             }
                         });
                         self.mark_dirty();
-                        if let Some(restore) = wizard_restore {
-                            return Some(restore);
+                        let tasks: Vec<Task<Message>> =
+                            wizard_restore.into_iter().chain(sync_stop).collect();
+                        if !tasks.is_empty() {
+                            return Some(Task::batch(tasks));
                         }
                     }
                     // Cancelled: drop the in-flight line, nothing to report.

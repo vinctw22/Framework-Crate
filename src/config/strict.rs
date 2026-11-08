@@ -75,6 +75,10 @@ pub fn import_strict(content: &str) -> Result<Config, String> {
     config.cpu_power.battery_initial = None;
     config.cpu_power.amd_ac_initial = None;
     config.cpu_power.amd_battery_initial = None;
+    // Machine-local safety state must not travel in a settings file. In
+    // particular, importing another machine's opt-in must not enable writes.
+    config.pl_custom_applied = false;
+    config.cpu_power.amd_write_experimental = false;
     Ok(config)
 }
 
@@ -328,10 +332,25 @@ fn toml_escape(raw: &str) -> String {
     let mut out = String::with_capacity(raw.len() + 2);
     out.push('"');
     for c in raw.chars() {
-        if c == '\\' || c == '"' {
-            out.push('\\');
+        match c {
+            '\\' => out.push_str("\\\\"),
+            '"' => out.push_str("\\\""),
+            '\u{08}' => out.push_str("\\b"),
+            '\t' => out.push_str("\\t"),
+            '\n' => out.push_str("\\n"),
+            '\u{0C}' => out.push_str("\\f"),
+            '\r' => out.push_str("\\r"),
+            c if c.is_control() => {
+                use std::fmt::Write;
+                let cp = c as u32;
+                if cp <= 0xFFFF {
+                    let _ = write!(out, "\\u{cp:04X}");
+                } else {
+                    let _ = write!(out, "\\U{cp:08X}");
+                }
+            }
+            _ => out.push(c),
         }
-        out.push(c);
     }
     out.push('"');
     out
@@ -349,6 +368,9 @@ pub fn export_to_path(config: &Config, dest: &std::path::Path) -> Result<(), Str
     portable.cpu_power.battery_initial = None;
     portable.cpu_power.amd_ac_initial = None;
     portable.cpu_power.amd_battery_initial = None;
+    // Machine-local state and the explicit AMD write opt-in stay local.
+    portable.pl_custom_applied = false;
+    portable.cpu_power.amd_write_experimental = false;
     let mut content = render_config_toml(&portable)?;
     if let Some(origin) = local_product_name() {
         // The stamp must stay top-level: anything after a [table] header
@@ -502,6 +524,16 @@ mod tests {
     }
 
     #[test]
+    fn import_strict_clears_machine_local_safety_flags() {
+        let cfg = crate::config::import_strict(
+            "version = 2\npl_custom_applied = true\n[cpu_power]\namd_write_experimental = true\n",
+        )
+        .unwrap();
+        assert!(!cfg.pl_custom_applied);
+        assert!(!cfg.cpu_power.amd_write_experimental);
+    }
+
+    #[test]
     fn import_strict_rejects_unknown_amd_profile_field() {
         let err = crate::config::import_strict(
             "version = 2\n[cpu_power.amd_ac]\nstapm_watts = 25.0\nbogus = 1\n",
@@ -551,18 +583,25 @@ mod tests {
             pl1_watts: 19.0,
             ..Default::default()
         });
+        cfg.pl_custom_applied = true;
+        cfg.cpu_power.amd_write_experimental = true;
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("exported.toml");
         crate::config::export_to_path(&cfg, &path).unwrap();
         let raw = std::fs::read_to_string(&path).unwrap();
         assert!(!raw.contains("ac_initial"), "{raw}");
         assert!(!raw.contains("battery_initial"), "{raw}");
+        assert!(!raw.contains("pl_custom_applied = true"), "{raw}");
+        assert!(!raw.contains("amd_write_experimental = true"), "{raw}");
         let imported = crate::config::import_file(&path).unwrap();
         let mut expected = cfg.clone();
         // MMIO captures are local-only: exported files omit them and import
         // clears any older ones defensively.
         expected.cpu_power.ac_initial = None;
         expected.cpu_power.battery_initial = None;
+        // Machine-local state and the AMD write opt-in never travel.
+        expected.pl_custom_applied = false;
+        expected.cpu_power.amd_write_experimental = false;
         expected.validate();
         assert_eq!(imported.config, expected);
         // Same-machine round trip matches, unless this host cannot read
@@ -616,6 +655,14 @@ mod tests {
         assert_eq!(chassis_size("Unknown Box"), None);
         // Must not read the "7040" as a chassis size.
         assert_eq!(chassis_size("7040Series"), None);
+    }
+
+    #[test]
+    fn toml_escape_handles_quotes_and_control_characters() {
+        assert_eq!(
+            super::toml_escape("a\nb\t\"c\\d\u{1}"),
+            "\"a\\nb\\t\\\"c\\\\d\\u0001\""
+        );
     }
 
     #[test]

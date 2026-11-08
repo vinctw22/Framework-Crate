@@ -1,3 +1,4 @@
+use super::stop_sync_task;
 use super::{App, Message, next_config_version};
 use crate::style::*;
 use crate::types::{Config, FanControlMode};
@@ -408,7 +409,7 @@ impl App {
     /// Callers must ensure no calibration run is active (see the import
     /// handler): importing mid-run would race the wizard for EC writes and
     /// lose to its finish.
-    pub(crate) fn apply_imported_config(&mut self, cfg: &Config) {
+    pub(crate) fn apply_imported_config(&mut self, cfg: &Config) -> Option<Task<Message>> {
         let cfg = cfg.clone();
         let old_tables = read_lock(&self.state.lifecycle.config)
             .fan
@@ -485,5 +486,57 @@ impl App {
         }
         self.update_curve_full_points();
         self.save_config();
+        self.reset_power_state_after_import()
+    }
+
+    /// An import replaces the persisted policy, but the live apply/sync state
+    /// still belongs to the previous file. Invalidate in-flight profile work,
+    /// reset retry latches, and stop a keep-alive thread that the imported
+    /// file no longer wants (or cannot immediately replace).
+    fn reset_power_state_after_import(&mut self) -> Option<Task<Message>> {
+        let current = self.current_power_source();
+        let keep = self.keep_limits_enabled();
+        let has_profile = current.is_some_and(|ac| {
+            let cfg = read_lock(&self.state.lifecycle.config);
+            cfg.cpu_power
+                .profile(ac)
+                .or_else(|| cfg.cpu_power.initial(ac))
+                .is_some()
+        });
+        // Invalidate every in-flight Intel/AMD profile result. A newer start
+        // increments this again and therefore wins over the imported state.
+        self.sync_intent.fetch_add(1, Ordering::AcqRel);
+        let stop_sync = if self.state.cpu_power.sync_enabled.load(Ordering::Acquire)
+            && (!keep || !has_profile)
+        {
+            let intent = self.sync_intent.fetch_add(1, Ordering::AcqRel) + 1;
+            Some(stop_sync_task(
+                self.state.cpu_power.clone(),
+                Arc::clone(&self.sync_intent),
+                intent,
+            ))
+        } else {
+            None
+        };
+
+        self.pl_active_source = None;
+        self.pl_profile_busy = false;
+        self.pl_profile_retry_at_ms = 0;
+        self.pl_profile_retry_failures = 0;
+        self.pl_reset_disable_keep = false;
+        self.pl_capture_in_flight = false;
+        self.pl_capture_source = None;
+        self.pl_fields_primed = false;
+
+        self.amd_apply_busy = false;
+        self.amd_active_source = None;
+        self.amd_last_reassert_ms = 0;
+        self.amd_reset_disable_keep = false;
+        self.amd_apply_failures = 0;
+        self.amd_fields_primed = false;
+
+        self.load_pl_fields_for_source();
+        self.load_amd_fields_for_source();
+        stop_sync
     }
 }
