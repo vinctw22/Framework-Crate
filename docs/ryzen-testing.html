@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ryzen CPU Power testing — Framework Crate</title>
+<meta name="description" content="AC-first checklist for validating experimental AMD RyzenSMU CPU power support.">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Framework Crate">
+<meta property="og:title" content="Ryzen CPU Power testing — Framework Crate">
+<meta property="og:description" content="AC-first checklist for validating experimental AMD RyzenSMU CPU power support.">
+<meta property="og:url" content="https://vinctw22.github.io/Framework-Crate/ryzen-testing.html">
+<meta property="og:image" content="https://raw.githubusercontent.com/vinctw22/Framework-Crate/master/images/Framework-Crate-Ryzen-CPU-Power-experimental.png">
+<meta property="og:image:alt" content="AMD Ryzen CPU Power card">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="stylesheet" href="style.css">
+<link rel="icon" href="icon.png" type="image/png">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon.png">
+<script>
+(function () {
+  try {
+    var pref = localStorage.getItem("fc-lang");
+    if (pref === "zh-TW") { location.replace("zh-TW/ryzen-testing.html"); return; }
+    if (pref === "en") return;
+    var langs = (navigator.languages && navigator.languages.length)
+      ? navigator.languages : [navigator.language || ""];
+    var wantsZh = langs.some(function (l) {
+      return (l || "").toLowerCase().indexOf("zh") === 0;
+    });
+    if (wantsZh) location.replace("zh-TW/ryzen-testing.html");
+  } catch (e) {}
+})();
+</script>
+</head>
+<body>
+<header class="site"><div class="wrap nav-row">
+<a class="brand" href="index.html"><svg class="brand-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M12 15C13.6569 15 15 13.6569 15 12C15 10.3431 13.6569 9 12 9C10.3431 9 9 10.3431 9 12C9 13.6569 10.3431 15 12 15Z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M19.6224 10.3954L18.5247 7.7448L20 6L18 4L16.2647 5.48295L13.5578 4.36974L12.9353 2H10.981L10.3491 4.40113L7.70441 5.51596L6 4L4 6L5.45337 7.78885L4.3725 10.4463L2 11V13L4.40111 13.6555L5.51575 16.2997L4 18L6 20L7.79116 18.5403L10.397 19.6123L11 22H13L13.6045 19.6132L16.2551 18.5155C16.6969 18.8313 18 20 18 20L20 18L18.5159 16.2494L19.6139 13.598L21.9999 12.9772L22 11L19.6224 10.3954Z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>Framework Crate</a>
+<nav><a class="pill" href="index.html">Home</a><a class="pill" href="downloads.html">Downloads</a><a class="pill" href="changelog.html">Changelog</a><a class="pill" href="contribute.html">Contribute</a><a class="pill" href="privacy.html">Privacy</a><a class="pill" href="license.html">License</a><a class="pill" href="security.html">Security</a><a class="pill" href="limitations.html">Limits</a><a class="pill" href="https://github.com/vinctw22/Framework-Crate">GitHub</a><a class="pill" href="zh-TW/ryzen-testing.html" onclick="try{localStorage.setItem('fc-lang','zh-TW')}catch(e){}">中文</a></nav>
+</div></header>
+<div class="wrap">
+
+<p class="muted"><a href="contribute.html">Contribute</a> / Ryzen testing</p>
+
+<h1>Ryzen CPU Power testing</h1>
+<p class="muted">AMD write support is experimental. Use this checklist to collect comparable results. Read-only telemetry is safe; writes require <strong>Enable experimental AMD writes</strong> and can be rejected or clamped by firmware.</p>
+
+<div class="card"><strong>Always keep the charger connected for Stages 0–3.</strong> Only test battery-mode writes after AC writes are confirmed to work and read back correctly.</div>
+
+<h2>Before testing</h2>
+<ul class="tight">
+<li>AMD Framework laptop/desktop (supported families: Raven, Renoir, Mobile/Phoenix, Strix Point/Krackan, Strix Halo, Raphael/Granite Ridge/Dragon Range).</li>
+<li>Framework Crate 0.9.6 or newer, run as administrator.</li>
+<li>PawnIO + <code>RyzenSMU.bin</code> installed via <strong>Download Modules</strong>, then <strong>Redetect</strong>.</li>
+<li>HWiNFO64 in Sensors-only mode (for package power cross-checks).</li>
+<li>CPU-Z for the all-core load (<strong>Tools → Stress CPU</strong>).</li>
+<li>Keep <code>%APPDATA%\framework-crate\app.log</code> available for the report.</li>
+</ul>
+
+<h2>Stage 0 — read-only</h2>
+<div class="card">
+<figure class="shot"><img src="https://raw.githubusercontent.com/vinctw22/Framework-Crate/master/images/Framework-Crate-Ryzen-CPU-Power-experimental.png" alt="AMD CPU Power card with Copy diagnostics"><figcaption>AMD CPU Power card — Copy diagnostics is at the bottom of the settings area.</figcaption></figure>
+<ol>
+<li>Open <strong>CPU Power</strong>. Confirm the card says <code>AMD RyzenSMU</code>.</li>
+<li>Press <strong>Copy diagnostics</strong> and keep the output.</li>
+<li>Check that <code>code_name</code>, <code>smu_version</code>, <code>pm_table_version</code>, STAPM/PPT Fast/PPT Slow, Tctl, and APU Slow look plausible (not zero or absurd).</li>
+<li>Compare with HWiNFO64 idle package power and any PPT limit row.</li>
+<li>Report the diagnostics through the AMD issue template.</li>
+</ol>
+</div>
+
+<h2>Stage 1 — no-op apply</h2>
+<ol>
+<li>Enable <strong>experimental AMD writes</strong>.</li>
+<li>Apply the same values that are currently shown.</li>
+<li>Confirm the command succeeds and the PM-table readback is unchanged.</li>
+<li>If it fails, stop and report the error text + diagnostics.</li>
+</ol>
+
+<h2>Stage 2 — small delta + readback</h2>
+<ol>
+<li>On AC power, lower STAPM/PPT Fast/PPT Slow by 5W (or Tctl by 2°C); keep everything else.</li>
+<li>Press <strong>Apply</strong> and confirm the readback matches the request within 1W/1°C.</li>
+<li>On AC, run CPU-Z <strong>Stress CPU</strong> and record HWiNFO64 package power.</li>
+<li>Press <strong>Reset</strong> and confirm the captured baseline comes back.</li>
+<li>Report both the requested values and the readback/HWiNFO results.</li>
+</ol>
+
+<h2>Stage 3 — profiles, keep-alive, transitions</h2>
+<div class="card">Only run this stage after <strong>Stage 1 (no-op) and Stage 2 (small delta) both succeeded with a matching readback</strong>. If either fails, stop at Stage 2 and report; do not enable keep-alive or test sleep/AC transitions until a write is confirmed working.</div>
+<ol>
+<li>On AC, save the AC profile and enable keep-alive; confirm the AC profile applies.</li>
+<li>Only then save a distinct Battery profile and verify the switch after unplug/replug.</li>
+<li>On AC, sleep/resume and verify the profile is re-applied.</li>
+<li>Repeat once after <strong>Reset</strong> (keep-alive should turn off).</li>
+<li>Record any unexpected value, error, or fan behavior and the power source used.</li>
+</ol>
+
+<h2>Reporting</h2>
+<p>Use the <a href="https://github.com/vinctw22/Framework-Crate/issues/new?template=amd-power-report.yml">AMD CPU Power test report</a> issue template and include:</p>
+<ul class="tight">
+<li>diagnostics from every stage</li>
+<li>exact values requested and read back</li>
+<li>HWiNFO64 package power before/after (CSV/screenshot if possible)</li>
+<li>a screenshot of CPU-Z <strong>Stress CPU</strong> running alongside HWiNFO64</li>
+<li>sleep/resume and AC/battery observations</li>
+<li>relevant <code>app.log</code> lines</li>
+</ul>
+<p class="muted">Do not include serial numbers, tokens, or other private data. If a write fails or the machine behaves unexpectedly, press <strong>Reset</strong>, disable the experimental toggle, and report before trying again.</p>
+
+<footer>
+<p>Framework Crate by Vincent Chang · MIT License · © <span id="year">2026</span> · <a href="privacy.html">Privacy</a> · <a href="license.html">License</a> · <a href="security.html">Security</a> · <a href="limitations.html">Limitations</a> · <a href="https://github.com/vinctw22/Framework-Crate">GitHub</a></p>
+</footer>
+</div>
+<script>document.getElementById("year").textContent = new Date().getFullYear();</script>
+</body>
+</html>

@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="zh-Hant-TW">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ryzen CPU Power 測試 — Framework Crate</title>
+<meta name="description" content="實驗性 AMD RyzenSMU CPU 功耗支援的 AC 優先驗證清單。">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Framework Crate">
+<meta property="og:title" content="Ryzen CPU Power 測試 — Framework Crate">
+<meta property="og:description" content="實驗性 AMD RyzenSMU CPU 功耗支援的 AC 優先驗證清單。">
+<meta property="og:url" content="https://vinctw22.github.io/Framework-Crate/zh-TW/ryzen-testing.html">
+<meta property="og:image" content="https://raw.githubusercontent.com/vinctw22/Framework-Crate/master/images/Framework-Crate-Ryzen-CPU-Power-experimental.png">
+<meta property="og:image:alt" content="AMD Ryzen CPU Power 卡片">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="stylesheet" href="../style.css">
+<link rel="icon" href="../icon.png" type="image/png">
+<link rel="icon" href="../icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="../icon.png">
+<script>
+(function () {
+  try {
+    var pref = localStorage.getItem("fc-lang");
+    if (pref === "en") { location.replace("../ryzen-testing.html"); return; }
+    if (pref === "zh-TW") return;
+    var langs = (navigator.languages && navigator.languages.length)
+      ? navigator.languages : [navigator.language || ""];
+    var wantsZh = langs.some(function (l) {
+      return (l || "").toLowerCase().indexOf("zh") === 0;
+    });
+    if (!wantsZh) location.replace("../ryzen-testing.html");
+  } catch (e) {}
+})();
+</script>
+</head>
+<body>
+<header class="site"><div class="wrap nav-row">
+<a class="brand" href="index.html"><svg class="brand-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M12 15C13.6569 15 15 13.6569 15 12C15 10.3431 13.6569 9 12 9C10.3431 9 9 10.3431 9 12C9 13.6569 10.3431 15 12 15Z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M19.6224 10.3954L18.5247 7.7448L20 6L18 4L16.2647 5.48295L13.5578 4.36974L12.9353 2H10.981L10.3491 4.40113L7.70441 5.51596L6 4L4 6L5.45337 7.78885L4.3725 10.4463L2 11V13L4.40111 13.6555L5.51575 16.2997L4 18L6 20L7.79116 18.5403L10.397 19.6123L11 22H13L13.6045 19.6132L16.2551 18.5155C16.6969 18.8313 18 20 18 20L20 18L18.5159 16.2494L19.6139 13.598L21.9999 12.9772L22 11L19.6224 10.3954Z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>Framework Crate</a>
+<nav><a class="pill" href="index.html">首頁</a><a class="pill" href="downloads.html">下載</a><a class="pill" href="changelog.html">版本紀錄</a><a class="pill" href="contribute.html">參與貢獻</a><a class="pill" href="privacy.html">隱私</a><a class="pill" href="license.html">授權</a><a class="pill" href="security.html">安全性</a><a class="pill" href="limitations.html">限制</a><a class="pill" href="https://github.com/vinctw22/Framework-Crate">GitHub</a><a class="pill" href="../ryzen-testing.html" onclick="try{localStorage.setItem('fc-lang','en')}catch(e){}">English</a></nav>
+</div></header>
+<div class="wrap">
+
+<p class="muted"><a href="contribute.html">參與貢獻</a> / Ryzen 測試</p>
+
+<h1>Ryzen CPU Power 測試</h1>
+<p class="muted">AMD 寫入支援為實驗性。請用此清單收集可比較的結果。唯讀遙測安全；寫入需要開啟 <strong>Enable experimental AMD writes</strong>，且可能被韌體拒絕或夾限。</p>
+
+<div class="card"><strong>Stages 0–3 一律先接上充電器。</strong> 只有 AC 寫入確認可運作且 readback 正確後，才測試電池模式寫入。</div>
+
+<h2>測試前</h2>
+<ul class="tight">
+<li>AMD Framework 筆電／桌機（支援 family：Raven、Renoir、Mobile/Phoenix、Strix Point/Krackan、Strix Halo、Raphael/Granite Ridge/Dragon Range）。</li>
+<li>Framework Crate 0.9.6 以上，以管理員身分執行。</li>
+<li>已透過 <strong>Download Modules</strong> 安裝 PawnIO 與 <code>RyzenSMU.bin</code>，並按 <strong>Redetect</strong>。</li>
+<li>HWiNFO64 使用 Sensors-only 模式（交叉比對 package power）。</li>
+<li>CPU-Z 用於全核負載（<strong>Tools → Stress CPU</strong>）。</li>
+<li>保留 <code>%APPDATA%\framework-crate\app.log</code> 供回報使用。</li>
+</ul>
+
+<h2>Stage 0 — 唯讀</h2>
+<div class="card">
+<figure class="shot"><img src="https://raw.githubusercontent.com/vinctw22/Framework-Crate/master/images/Framework-Crate-Ryzen-CPU-Power-experimental.png" alt="AMD CPU Power 卡片與 Copy diagnostics"><figcaption>AMD CPU Power 卡片 — Copy diagnostics 在設定區底部。</figcaption></figure>
+<ol>
+<li>開啟 <strong>CPU Power</strong>，確認卡片顯示 <code>AMD RyzenSMU</code>。</li>
+<li>按 <strong>Copy diagnostics</strong> 並保留輸出。</li>
+<li>檢查 <code>code_name</code>、<code>smu_version</code>、<code>pm_table_version</code>、STAPM／PPT Fast／PPT Slow、Tctl、APU Slow 是否合理（不是零或誇張值）。</li>
+<li>與 HWiNFO64 的 idle package power、PPT limit 欄位比對。</li>
+<li>使用 AMD issue template 回報 diagnostics。</li>
+</ol>
+</div>
+
+<h2>Stage 1 — no-op apply</h2>
+<ol>
+<li>勾選 <strong>experimental AMD writes</strong>。</li>
+<li>套用目前顯示的相同數值。</li>
+<li>確認命令成功，且 PM-table readback 沒有改變。</li>
+<li>若失敗，停止並回報錯誤文字＋diagnostics。</li>
+</ol>
+
+<h2>Stage 2 — 小幅調整＋readback</h2>
+<ol>
+<li>在 AC 下把 STAPM／PPT Fast／PPT Slow 降低 5W（或 Tctl 降低 2°C），其餘不變。</li>
+<li>按 <strong>Apply</strong>，確認 readback 與要求值誤差在 1W／1°C 內。</li>
+<li>在 AC 下執行 CPU-Z <strong>Stress CPU</strong>，記錄 HWiNFO64 package power。</li>
+<li>按 <strong>Reset</strong>，確認擷取的 baseline 回來。</li>
+<li>回報要求值與 readback／HWiNFO 結果。</li>
+</ol>
+
+<h2>Stage 3 — profiles、keep-alive、狀態切換</h2>
+<div class="card">只有 <strong>Stage 1（no-op）與 Stage 2（小幅調整）都成功且 readback 相符</strong>後才可進行此階段。任一失敗請停在 Stage 2 回報；在確認寫入可運作前，不要開啟 keep-alive 或測試睡眠／AC 切換。</div>
+<ol>
+<li>在 AC 下儲存 AC profile 並開啟 keep-alive；確認 AC profile 有套用。</li>
+<li>之後才儲存不同的 Battery profile，並在插拔後確認切換。</li>
+<li>在 AC 下睡眠／喚醒，確認 profile 有重新套用。</li>
+<li>按一次 <strong>Reset</strong>（keep-alive 應關閉）後再重複一次。</li>
+<li>記錄任何異常數值、錯誤或風扇行為，以及當下電源狀態。</li>
+</ol>
+
+<h2>回報</h2>
+<p>使用 <a href="https://github.com/vinctw22/Framework-Crate/issues/new?template=amd-power-report.yml">AMD CPU Power 測試回報</a> issue template，並附上：</p>
+<ul class="tight">
+<li>每個階段的 diagnostics</li>
+<li>要求的精確數值與 readback</li>
+<li>HWiNFO64 package power 前後對照（CSV／截圖）</li>
+<li>CPU-Z <strong>Stress CPU</strong> 搭配 HWiNFO64 的截圖</li>
+<li>睡眠／喚醒與 AC／電池觀察</li>
+<li>相關 <code>app.log</code> 行</li>
+</ul>
+<p class="muted">請勿包含序號、token 或其他私人資料。若寫入失敗或機器行為異常，請按 <strong>Reset</strong>、關閉 experimental 開關，然後再回報。</p>
+
+<footer>
+<p>Framework Crate by Vincent Chang · MIT 授權 · © <span id="year">2026</span> · <a href="privacy.html">隱私</a> · <a href="license.html">授權</a> · <a href="security.html">安全性</a> · <a href="limitations.html">限制</a> · <a href="https://github.com/vinctw22/Framework-Crate">GitHub</a></p>
+</footer>
+</div>
+<script>document.getElementById("year").textContent = new Date().getFullYear();</script>
+</body>
+</html>

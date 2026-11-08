@@ -2,6 +2,8 @@
 
 [English](Ryzen_Power_Testing.md) | **繁體中文**
 
+網頁版：https://vinctw22.github.io/Framework-Crate/zh-TW/ryzen-testing.html
+
 AMD 寫入支援為實驗性。請依照此清單收集可比較的結果。唯讀遙測是安全的；寫入需要開啟
 **Enable experimental AMD writes**，且可能被韌體拒絕或夾限。
 

@@ -2,6 +2,8 @@
 
 [English](Ryzen_Power_Testing.md) | [繁體中文](Ryzen_Power_Testing.zh-TW.md)
 
+Web version: https://vinctw22.github.io/Framework-Crate/ryzen-testing.html
+
 AMD write support is experimental. Use this checklist to collect comparable results.
 Read-only telemetry is safe; writes require **Enable experimental AMD writes** and can
 be rejected or clamped by firmware.
