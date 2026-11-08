@@ -78,9 +78,21 @@ pub(in crate::background_task) fn phase_resume(state: &AppState, poll: &mut Poll
             && let Some(params) = state.cpu_power.desired_sync_params()
             && let Ok(handle) = tokio::runtime::Handle::try_current()
         {
-            handle.spawn_blocking(move || {
-                if let Err(e) = crate::cpu_power::write_msr_pl1_pl2_public(params) {
-                    tracing::warn!("Post-resume CPU power re-assert failed: {}", e);
+            handle.spawn(async move {
+                // Serialize with the UI Apply/reset path; otherwise a resume
+                // re-assert can overwrite a newer user write.
+                let _guard = crate::util::cpu_power_mutex().lock().await;
+                let result = crate::util::spawn_blocking_with_timeout(
+                    crate::util::PAWNIO_SYNC_TIMEOUT,
+                    move || crate::cpu_power::write_msr_pl1_pl2_public(params),
+                )
+                .await;
+                match result {
+                    Ok(Ok(())) => {}
+                    Ok(Err(e)) => {
+                        tracing::warn!("Post-resume CPU power re-assert failed: {}", e)
+                    }
+                    Err(e) => tracing::warn!("Post-resume CPU power re-assert task failed: {}", e),
                 }
             });
         }
