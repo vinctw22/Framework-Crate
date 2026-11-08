@@ -258,8 +258,9 @@ impl App {
                         return Some(Task::none());
                     }
                 };
-                // Invalidate an older Start/Stop task: this explicit Apply is
-                // the newest sync-affecting intent.
+                // Invalidate an older Start/Stop/Reset task: this explicit
+                // Apply is the newest sync-affecting intent.
+                self.pl_reset_disable_keep = false;
                 let intent = self.sync_intent.fetch_add(1, Ordering::AcqRel) + 1;
                 self.pl_profile_busy = true;
                 self.pl_profile_retry_failures = 0;
@@ -315,7 +316,10 @@ impl App {
                     self.mark_dirty();
                     return Some(Task::none());
                 }
-                if !self.state.system.amd_cpu.load(Ordering::Acquire) || self.amd_apply_busy {
+                if !self.state.system.amd_cpu.load(Ordering::Acquire)
+                    || self.amd_apply_busy
+                    || !self.state.cpu_power.amd_snapshot().available
+                {
                     return Some(Task::none());
                 }
                 if !self.amd_write_enabled() {
@@ -323,6 +327,7 @@ impl App {
                     self.mark_dirty();
                     return Some(Task::none());
                 }
+                self.amd_reset_disable_keep = false;
                 self.amd_apply_failures = 0;
                 let profile = match self.parse_amd_profile() {
                     Ok(profile) => profile,
@@ -352,7 +357,8 @@ impl App {
                 }
                 self.amd_apply_busy = true;
                 let request = profile.to_request();
-                Some(self.amd_apply_task(ac, request))
+                let intent = self.sync_intent.fetch_add(1, Ordering::AcqRel) + 1;
+                Some(self.amd_apply_task(ac, request, intent))
             }
             Message::AmdReset => {
                 if self.amd_preview {
@@ -360,7 +366,10 @@ impl App {
                     self.mark_dirty();
                     return Some(Task::none());
                 }
-                if !self.state.system.amd_cpu.load(Ordering::Acquire) || self.amd_apply_busy {
+                if !self.state.system.amd_cpu.load(Ordering::Acquire)
+                    || self.amd_apply_busy
+                    || !self.state.cpu_power.amd_snapshot().available
+                {
                     return Some(Task::none());
                 }
                 if !self.amd_write_enabled() {
@@ -381,24 +390,31 @@ impl App {
                 self.amd_reset_disable_keep = true;
                 self.amd_apply_failures = 0;
                 self.cpu_power_error = None;
-                Some(self.amd_apply_task(ac, initial.to_request()))
+                let intent = self.sync_intent.fetch_add(1, Ordering::AcqRel) + 1;
+                Some(self.amd_apply_task(ac, initial.to_request(), intent))
             }
-            Message::AmdApplied(ac, result) => {
+            Message::AmdApplied(ac, intent, result) => {
+                if *intent != self.sync_intent.load(Ordering::Acquire) {
+                    // A Stop/import/newer Apply owns the state now.
+                    return Some(Task::none());
+                }
                 self.amd_apply_busy = false;
                 match result {
                     Ok(info) => {
                         let info = info.clone();
                         self.amd_fields_primed = true;
                         self.amd_apply_failures = 0;
-                        self.amd_active_source = Some(*ac);
-                        self.amd_last_reassert_ms = crate::util::monotonic_ms();
                         if self.amd_reset_disable_keep {
                             self.amd_reset_disable_keep = false;
                             self.mutate_config(|cfg| cfg.cpu_power.keep_limits = false);
                             self.save_config();
+                            self.amd_active_source = None;
+                            self.amd_last_reassert_ms = 0;
                             self.cpu_power_status =
                                 Some("Reset complete; keep-alive off.".to_string());
                         } else {
+                            self.amd_active_source = Some(*ac);
+                            self.amd_last_reassert_ms = crate::util::monotonic_ms();
                             self.cpu_power_status =
                                 Some(format!("{} AMD profile applied.", source_label(*ac)));
                         }
@@ -406,6 +422,16 @@ impl App {
                             self.apply_amd_fields_from_snapshot(&info);
                         }
                         self.state.cpu_power.set_amd_info(info);
+                        self.cpu_power_error = None;
+                    }
+                    Err(e) if e == PROFILE_SKIPPED_SOURCE_CHANGED => {
+                        self.amd_reset_disable_keep = false;
+                        self.amd_active_source = None;
+                        self.amd_last_reassert_ms = 0;
+                        self.amd_apply_failures = 0;
+                        self.cpu_power_status = Some(
+                            "Power source changed; applying the matching AMD profile.".to_string(),
+                        );
                         self.cpu_power_error = None;
                     }
                     Err(e) => {
@@ -514,12 +540,22 @@ impl App {
                     let ac = self
                         .current_power_source()
                         .unwrap_or(self.amd_profile_is_ac);
-                    let profile = self
+                    let saved = self
                         .saved_amd_profile(ac)
-                        .or_else(|| self.saved_amd_initial(ac))
-                        .or_else(|| self.parse_amd_profile().ok());
+                        .or_else(|| self.saved_amd_initial(ac));
+                    // Only capture the visible edit fields when they belong to
+                    // the source being started; otherwise enabling keep-alive
+                    // while viewing the other profile would copy it across.
+                    let profile = if self.amd_profile_is_ac == ac {
+                        saved.or_else(|| self.parse_amd_profile().ok())
+                    } else {
+                        saved
+                    };
                     let Some(profile) = profile else {
-                        self.cpu_power_error = Some("Enter valid AMD limits first".to_string());
+                        self.cpu_power_error = Some(format!(
+                            "No {} AMD profile saved; select it and press Apply first",
+                            source_label(ac)
+                        ));
                         self.mark_dirty();
                         return Some(Task::none());
                     };
@@ -533,7 +569,8 @@ impl App {
                     self.amd_apply_failures = 0;
                     self.cpu_power_error = None;
                     self.cpu_power_status = Some("AMD keep-alive on.".to_string());
-                    return Some(self.amd_apply_task(ac, profile.to_request()));
+                    let intent = self.sync_intent.fetch_add(1, Ordering::AcqRel) + 1;
+                    return Some(self.amd_apply_task(ac, profile.to_request(), intent));
                 }
                 if !self.cpu_power_supported() || !self.state.cpu_power.snapshot().available {
                     return Some(Task::none());
@@ -581,15 +618,19 @@ impl App {
                 self.pl_profile_retry_failures = 0;
                 self.pl_profile_retry_at_ms =
                     crate::util::monotonic_ms().saturating_add(PL_RESET_RETRY_MS);
-                // Invalidate an older Stop queued before this start.
+                self.pl_reset_disable_keep = false;
+                // Invalidate an older Stop/Reset queued before this start.
                 let intent = self.sync_intent.fetch_add(1, Ordering::AcqRel) + 1;
                 Some(self.apply_profile_task(ac, params, intent))
             }
             Message::CpuPowerSyncStop => {
                 if self.state.system.amd_cpu.load(Ordering::Acquire) {
+                    self.sync_intent.fetch_add(1, Ordering::AcqRel);
                     self.mutate_config(|cfg| cfg.cpu_power.keep_limits = false);
                     self.save_config();
                     self.amd_active_source = None;
+                    self.amd_last_reassert_ms = 0;
+                    self.amd_reset_disable_keep = false;
                     self.amd_apply_busy = false;
                     self.amd_apply_failures = 0;
                     self.cpu_power_status = Some("AMD keep-alive off.".to_string());
@@ -604,6 +645,7 @@ impl App {
                 self.pl_active_source = None;
                 self.pl_profile_busy = false;
                 self.pl_profile_retry_failures = 0;
+                self.pl_reset_disable_keep = false;
                 self.cpu_power_status = Some("Keep-alive off.".to_string());
                 self.mark_dirty();
                 let intent = self.sync_intent.fetch_add(1, Ordering::AcqRel) + 1;
@@ -623,7 +665,11 @@ impl App {
                 self.pl_reset_disable_keep = true;
                 Some(self.handle_cpu_power_sync_reset())
             }
-            Message::CpuPowerResetDone(result) => {
+            Message::CpuPowerResetDone(intent, result) => {
+                if *intent != self.sync_intent.load(Ordering::Acquire) {
+                    // A newer Apply/Start/Stop/import owns the state.
+                    return Some(Task::none());
+                }
                 match result {
                     Ok(()) => {
                         self.cpu_power_error = None;
@@ -885,7 +931,7 @@ impl App {
     /// profile first, then the source's one-time MMIO capture, then the live
     /// registers. This keeps the default wall aligned with what the firmware
     /// enforces when plugged in or on battery.
-    fn load_pl_fields_for_source(&mut self) {
+    pub(crate) fn load_pl_fields_for_source(&mut self) {
         if let Some(profile) = self
             .saved_profile(self.pl_profile_is_ac)
             .or_else(|| self.saved_initial(self.pl_profile_is_ac))
@@ -1085,6 +1131,7 @@ impl App {
                 return Task::none();
             }
         };
+        let intent = self.sync_intent.fetch_add(1, Ordering::AcqRel) + 1;
         let cpu_power = self.state.cpu_power.clone();
         Task::perform(
             async move {
@@ -1113,7 +1160,7 @@ impl App {
                     Ok(inner) => inner,
                     Err(e) => Err(e),
                 };
-                Message::CpuPowerResetDone(result)
+                Message::CpuPowerResetDone(intent, result)
             },
             |msg| msg,
         )
@@ -1243,7 +1290,7 @@ impl App {
         self.amd_tctl_edit = format!("{:.1}", profile.tctl_c);
     }
 
-    fn load_amd_fields_for_source(&mut self) {
+    pub(crate) fn load_amd_fields_for_source(&mut self) {
         if let Some(profile) = self
             .saved_amd_profile(self.amd_profile_is_ac)
             .or_else(|| self.saved_amd_initial(self.amd_profile_is_ac))
@@ -1257,17 +1304,31 @@ impl App {
         }
     }
 
-    fn amd_apply_task(&self, ac: bool, request: crate::cpu_power::LimitRequest) -> Task<Message> {
+    fn amd_apply_task(
+        &self,
+        ac: bool,
+        request: crate::cpu_power::LimitRequest,
+        intent: u64,
+    ) -> Task<Message> {
         Task::perform(
             async move {
                 crate::util::spawn_blocking_with_timeout(
                     crate::util::PAWNIO_SYNC_TIMEOUT,
-                    move || crate::cpu_power::apply_amd_limits(request),
+                    move || {
+                        // The source can change while this task waits for the
+                        // SMU lock; never write the old source's profile onto
+                        // the new state.
+                        if crate::cpu_power::read_ac_present().is_some_and(|current| current != ac)
+                        {
+                            return Err(PROFILE_SKIPPED_SOURCE_CHANGED.to_string());
+                        }
+                        crate::cpu_power::apply_amd_limits(request)
+                    },
                 )
                 .await
                 .unwrap_or_else(Err)
             },
-            move |result| Message::AmdApplied(ac, result),
+            move |result| Message::AmdApplied(ac, intent, result),
         )
     }
 
@@ -1291,6 +1352,7 @@ impl App {
             self.amd_fields_primed = false;
             return;
         }
+        let mut source_changed = false;
         if let Some(ac) = self.current_power_source() {
             if self.saved_amd_initial(ac).is_none() {
                 let profile = crate::types::AmdPowerProfile::from_info(&info);
@@ -1299,11 +1361,12 @@ impl App {
                     self.save_config();
                 }
             }
-            if !self.amd_profile_user_selected {
+            if !self.amd_profile_user_selected && self.amd_profile_is_ac != ac {
                 self.amd_profile_is_ac = ac;
+                source_changed = true;
             }
         }
-        if !self.amd_fields_primed {
+        if !self.amd_fields_primed || source_changed {
             self.load_amd_fields_for_source();
             self.amd_fields_primed = true;
             self.mark_dirty();
@@ -1340,7 +1403,8 @@ impl App {
         self.amd_apply_busy = true;
         self.amd_last_reassert_ms = now_ms;
         self.cpu_power_error = None;
-        Some(self.amd_apply_task(ac, profile.to_request()))
+        let intent = self.sync_intent.fetch_add(1, Ordering::AcqRel) + 1;
+        Some(self.amd_apply_task(ac, profile.to_request(), intent))
     }
 
     fn apply_edit_fields_from_snapshot(&mut self, info: &crate::cpu_power::CpuPowerInfo) {
@@ -1358,6 +1422,7 @@ impl App {
 #[cfg(test)]
 mod tests {
     use crate::cpu_power::CpuPowerInfo;
+    use std::sync::atomic::Ordering;
 
     #[test]
     fn refresh_always_overwrites_edit_fields() {
@@ -1500,6 +1565,99 @@ mod tests {
         assert_eq!(app.pawnio_status.as_deref(), Some("Installing PawnIO..."));
         assert!(app.modules_download_error.is_none());
         assert!(!app.begin_pawnio_task("again"));
+    }
+
+    #[test]
+    fn imported_config_resets_stale_power_state() {
+        let (mut app, _) = crate::App::new(false);
+        app.pl_active_source = Some(true);
+        app.pl_profile_busy = true;
+        app.pl_profile_retry_at_ms = 42;
+        app.pl_profile_retry_failures = 3;
+        app.pl_capture_in_flight = true;
+        app.pl_capture_source = Some(true);
+        app.pl_reset_disable_keep = true;
+        app.pl_fields_primed = true;
+        app.amd_apply_busy = true;
+        app.amd_active_source = Some(false);
+        app.amd_last_reassert_ms = 42;
+        app.amd_reset_disable_keep = true;
+        app.amd_apply_failures = 3;
+        app.amd_fields_primed = true;
+        let before_intent = app.sync_intent.load(Ordering::Acquire);
+
+        let mut cfg = crate::types::Config::default();
+        cfg.cpu_power.keep_limits = true;
+        let task = app.apply_imported_config(&cfg);
+
+        assert!(task.is_none(), "no sync thread is running in this test");
+        assert!(app.sync_intent.load(Ordering::Acquire) > before_intent);
+        assert_eq!(app.pl_active_source, None);
+        assert!(!app.pl_profile_busy);
+        assert_eq!(app.pl_profile_retry_at_ms, 0);
+        assert_eq!(app.pl_profile_retry_failures, 0);
+        assert!(!app.pl_capture_in_flight);
+        assert_eq!(app.pl_capture_source, None);
+        assert!(!app.pl_reset_disable_keep);
+        assert!(!app.pl_fields_primed);
+        assert!(!app.amd_apply_busy);
+        assert_eq!(app.amd_active_source, None);
+        assert_eq!(app.amd_last_reassert_ms, 0);
+        assert!(!app.amd_reset_disable_keep);
+        assert_eq!(app.amd_apply_failures, 0);
+        assert!(!app.amd_fields_primed);
+    }
+
+    #[test]
+    fn stale_amd_result_is_ignored() {
+        use crate::app::Message;
+        let (mut app, _) = crate::App::new(false);
+        app.amd_apply_busy = true;
+        let stale_intent = app.sync_intent.load(Ordering::Acquire).wrapping_add(1);
+        let _ = app.handle_cpu_power_message(&Message::AmdApplied(
+            true,
+            stale_intent,
+            Err("old result".to_string()),
+        ));
+        assert!(app.amd_apply_busy);
+        assert!(app.cpu_power_error.is_none());
+    }
+
+    #[test]
+    fn stale_reset_result_is_ignored() {
+        use crate::app::Message;
+        let (mut app, _) = crate::App::new(false);
+        app.pl_custom_applied.store(true, Ordering::Release);
+        app.state
+            .lifecycle
+            .pl_reset_pending
+            .store(true, Ordering::Release);
+        let stale_intent = app.sync_intent.load(Ordering::Acquire).wrapping_add(1);
+        let _ = app.handle_cpu_power_message(&Message::CpuPowerResetDone(stale_intent, Ok(())));
+        assert!(app.pl_custom_applied.load(Ordering::Acquire));
+        assert!(app.state.lifecycle.pl_reset_pending.load(Ordering::Acquire));
+    }
+
+    #[test]
+    fn amd_stop_invalidates_the_inflight_result() {
+        use crate::app::Message;
+        let (mut app, _) = crate::App::new(false);
+        app.state.system.amd_cpu.store(true, Ordering::Release);
+        app.amd_apply_busy = true;
+        app.amd_active_source = Some(true);
+        app.amd_reset_disable_keep = true;
+        let old_intent = app.sync_intent.load(Ordering::Acquire);
+        let _ = app.handle_cpu_power_message(&Message::CpuPowerSyncStop);
+        assert!(!app.amd_apply_busy);
+        assert_eq!(app.amd_active_source, None);
+        assert!(!app.amd_reset_disable_keep);
+        assert!(app.sync_intent.load(Ordering::Acquire) > old_intent);
+        let _ = app.handle_cpu_power_message(&Message::AmdApplied(
+            true,
+            old_intent,
+            Err("old result".to_string()),
+        ));
+        assert!(!app.amd_apply_busy);
     }
 }
 

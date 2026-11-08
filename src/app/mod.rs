@@ -187,7 +187,7 @@ pub enum Message {
     AmdSlowChanged(String),
     AmdTctlChanged(String),
     AmdApply,
-    AmdApplied(bool, Result<crate::cpu_power::AmdPowerInfo, String>),
+    AmdApplied(bool, u64, Result<crate::cpu_power::AmdPowerInfo, String>),
     AmdReset,
     AmdProfileSourceChanged(bool),
     AmdWriteEnabledToggled(bool),
@@ -196,7 +196,7 @@ pub enum Message {
     CpuPowerSyncStart,
     CpuPowerSyncStop,
     CpuPowerSyncReset,
-    CpuPowerResetDone(Result<(), String>),
+    CpuPowerResetDone(u64, Result<(), String>),
 }
 
 pub struct App {
