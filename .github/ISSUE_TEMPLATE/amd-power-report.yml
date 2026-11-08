@@ -1,0 +1,142 @@
+name: AMD CPU Power test report
+description: Report read-only or experimental write results for AMD RyzenSMU support
+title: "[AMD] "
+labels: ["amd", "hardware-test"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for testing AMD CPU Power. Please follow `Ryzen_Power_Testing.md` and only enable
+        **experimental AMD writes** when you accept the risk. Never paste serial numbers,
+        tokens, or personal data.
+
+  - type: input
+    id: machine
+    attributes:
+      label: Framework model and CPU
+      placeholder: e.g. Framework Laptop 13 (AMD Ryzen 7040 Series), Ryzen 7 7840U
+    validations:
+      required: true
+
+  - type: input
+    id: os
+    attributes:
+      label: Windows version / build
+      placeholder: e.g. Windows 11 Pro 25H2 26200.9711
+    validations:
+      required: true
+
+  - type: dropdown
+    id: power
+    attributes:
+      label: Power source during the test
+      description: All first-time writes must be validated on AC; battery only after AC works.
+      options:
+        - AC / charger connected
+        - Battery only
+        - Both (AC first, then battery)
+    validations:
+      required: true
+
+  - type: input
+    id: app_version
+    attributes:
+      label: Framework Crate version
+      placeholder: e.g. 0.9.6
+    validations:
+      required: true
+
+  - type: input
+    id: module_version
+    attributes:
+      label: PawnIO / Modules version
+      placeholder: e.g. PawnIO 2.2.0, Modules 0.2.11
+    validations:
+      required: true
+
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: AMD diagnostics
+      description: Paste the output of **Copy diagnostics** from the AMD CPU Power card.
+      render: text
+    validations:
+      required: true
+
+  - type: dropdown
+    id: stage
+    attributes:
+      label: Test stage
+      options:
+        - Read-only diagnostics only
+        - No-op Apply (same values)
+        - Small delta write + readback
+        - AC/Battery profiles + keep-alive (only after a successful write)
+        - Sleep/resume or AC transition (only after a successful write)
+        - Full profile cycle (all of the above)
+    validations:
+      required: true
+
+  - type: input
+    id: limits
+    attributes:
+      label: Values applied
+      placeholder: e.g. STAPM 25 / Fast 45 / Slow 35 / Tctl 90
+    validations:
+      required: false
+
+  - type: textarea
+    id: hwinfo
+    attributes:
+      label: HWiNFO64 observations
+      description: |
+        Package power at idle and during CPU-Z Stress CPU before/after, any PPT/TDC/EDC
+        limit rows, and whether throttling behavior changed. Attach a CSV/screenshot
+        if available.
+      render: text
+    validations:
+      required: false
+
+  - type: textarea
+    id: transitions
+    attributes:
+      label: Sleep/resume and AC/battery checks
+      description: |
+        What happened after sleep/resume, unplug/replug, and after Reset? Did the
+        readback match the expected values?
+      render: text
+    validations:
+      required: false
+
+  - type: dropdown
+    id: result
+    attributes:
+      label: Result
+      options:
+        - Read-only data looks correct
+        - No-op Apply succeeded
+        - Small write succeeded and readback matched
+        - Partial success / unexpected readback
+        - Command rejected or error shown
+        - Unsafe behavior observed
+    validations:
+      required: true
+
+  - type: textarea
+    id: notes
+    attributes:
+      label: Logs and additional notes
+      description: Relevant lines from `%APPDATA%\framework-crate\app.log`.
+      render: text
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: Safety acknowledgement
+      options:
+        - label: I understand AMD writes are experimental and may be rejected or clamped by firmware.
+          required: true
+        - label: I did not include serial numbers, tokens, or other private data.
+          required: true
