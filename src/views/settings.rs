@@ -305,9 +305,14 @@ pub(crate) fn view_settings(app: &App) -> Element<'_, Message> {
     );
     // Sync moved here from the CPU Power card: it is a background policy, not
     // a per-apply control, and the explanation belongs on the About page.
-    if app.state.system.intel_cpu.load(Ordering::Relaxed) {
+    let amd_cpu = app.state.system.amd_cpu.load(Ordering::Relaxed);
+    if !app.amd_preview && (app.state.system.intel_cpu.load(Ordering::Relaxed) || amd_cpu) {
         let sync_on = read_lock(&app.state.lifecycle.config).cpu_power.keep_limits;
-        let available = app.state.cpu_power.snapshot().available;
+        let available = if amd_cpu {
+            app.state.cpu_power.amd_snapshot().available
+        } else {
+            app.state.cpu_power.snapshot().available
+        };
         let sync_button = button(text(if sync_on { "ON" } else { "OFF" }).size(FONT_BODY))
             .style(move |theme, status| mode_style(theme, status, sync_on));
         let sync_button = if available {

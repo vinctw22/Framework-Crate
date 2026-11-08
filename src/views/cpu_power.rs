@@ -20,17 +20,38 @@ pub(crate) fn turbo_text(now_ghz: Option<f64>, limit_ghz: Option<f64>) -> Option
 fn amd_power_section(snap: &ViewSnapshot) -> Element<'_, Message> {
     let pal = snap.palette;
     let info = &snap.amd_power;
+    let settings_label = if snap.show_cpu_power_settings {
+        "[-] Settings"
+    } else {
+        "[+] Settings"
+    };
+    let settings_button = button(text(settings_label).size(FONT_SMALL)).style(btn_style);
+    let settings_button = if info.available {
+        settings_button.on_press(Message::ToggleCpuPowerSettings)
+    } else {
+        settings_button
+    };
     let mut content = column![
-        text("CPU Power")
-            .size(FONT_SECTION)
-            .style(move |_theme| iced::widget::text::Style {
-                color: Some(pal.header)
-            }),
-        text("AMD RyzenSMU — read-only")
-            .size(FONT_SMALL)
-            .style(move |_theme| iced::widget::text::Style {
-                color: Some(pal.gray),
-            }),
+        row![
+            text("CPU Power")
+                .size(FONT_SECTION)
+                .style(move |_theme| iced::widget::text::Style {
+                    color: Some(pal.header)
+                }),
+            space::horizontal(),
+            settings_button,
+        ],
+        text(if snap.amd_preview_full {
+            "AMD RyzenSMU — preview (writes disabled)"
+        } else if snap.amd_preview {
+            "AMD RyzenSMU — read-only preview"
+        } else {
+            "AMD RyzenSMU — experimental"
+        })
+        .size(FONT_SMALL)
+        .style(move |_theme| iced::widget::text::Style {
+            color: Some(pal.gray),
+        }),
     ]
     .spacing(4);
 
@@ -122,6 +143,144 @@ fn amd_power_section(snap: &ViewSnapshot) -> Element<'_, Message> {
                 text(format!("{apu_slow:.1} W")).size(FONT_BODY),
             ]
             .spacing(8),
+        );
+    }
+    let mut settings = column![].spacing(4).padding(4);
+    if snap.show_cpu_power_settings {
+        settings = settings.push(
+            row![
+                text("Experimental").size(FONT_SMALL).style(move |_theme| {
+                    iced::widget::text::Style {
+                        color: Some(pal.warning),
+                    }
+                }),
+                text("unverified AMD writes — verify the PM-table readback")
+                    .size(FONT_SMALL)
+                    .style(move |_theme| iced::widget::text::Style {
+                        color: Some(pal.gray),
+                    }),
+            ]
+            .spacing(6)
+            .align_y(iced::Alignment::Center),
+        );
+        let (saved, has_default) = if snap.amd_profile_is_ac {
+            (snap.amd_profile_ac_saved, snap.amd_profile_ac_initial)
+        } else {
+            (
+                snap.amd_profile_battery_saved,
+                snap.amd_profile_battery_initial,
+            )
+        };
+        let saved_note = if saved {
+            "saved"
+        } else if has_default {
+            "PM-table baseline"
+        } else {
+            "live"
+        };
+        let is_ac = snap.amd_profile_is_ac;
+        settings = settings.push(
+            row![
+                text("Profile:").size(FONT_BODY),
+                button(text("AC").size(FONT_BODY))
+                    .on_press(Message::AmdProfileSourceChanged(true))
+                    .style(move |theme, status| mode_style(theme, status, is_ac)),
+                button(text("Battery").size(FONT_BODY))
+                    .on_press(Message::AmdProfileSourceChanged(false))
+                    .style(move |theme, status| mode_style(theme, status, !is_ac)),
+                text(saved_note)
+                    .size(FONT_SMALL)
+                    .style(move |_theme| iced::widget::text::Style {
+                        color: Some(pal.gray),
+                    }),
+            ]
+            .spacing(4)
+            .align_y(iced::Alignment::Center),
+        );
+        if !snap.amd_preview || snap.amd_preview_full {
+            for (label, edit, on_input) in [
+                (
+                    "STAPM:",
+                    &snap.amd_stapm_edit,
+                    Message::AmdStapmChanged as fn(String) -> Message,
+                ),
+                ("PPT Fast:", &snap.amd_fast_edit, Message::AmdFastChanged),
+                ("PPT Slow:", &snap.amd_slow_edit, Message::AmdSlowChanged),
+                ("Tctl:", &snap.amd_tctl_edit, Message::AmdTctlChanged),
+            ] {
+                settings = settings.push(
+                    row![
+                        text(label).size(FONT_BODY),
+                        text_input("", edit)
+                            .width(Length::Fixed(70.0))
+                            .on_input(on_input)
+                            .style(input_style),
+                    ]
+                    .spacing(6)
+                    .align_y(iced::Alignment::Center),
+                );
+            }
+            settings = settings.push(
+                row![
+                    iced::widget::checkbox(snap.amd_write_enabled)
+                        .on_toggle(Message::AmdWriteEnabledToggled)
+                        .style(checkbox_style),
+                    text("Enable experimental AMD writes").size(FONT_SMALL),
+                ]
+                .spacing(6)
+                .align_y(iced::Alignment::Center),
+            );
+            let apply = button(text("Apply").size(FONT_BODY)).style(btn_style);
+            let reset = button(text("Reset").size(FONT_BODY)).style(btn_style);
+            let can_write = !snap.amd_apply_busy && snap.amd_write_enabled;
+            settings = settings.push(if can_write {
+                row![
+                    apply.on_press(Message::AmdApply),
+                    reset.on_press(Message::AmdReset)
+                ]
+                .spacing(8)
+            } else {
+                row![apply, reset].spacing(8)
+            });
+        }
+        content = content.push(container(settings).width(Length::Fill).padding(8).style(
+            move |_theme| iced::widget::container::Style {
+                background: Some(pal.settings_bg.into()),
+                border: iced::Border::default().rounded(4).color(pal.dark).width(1),
+                ..Default::default()
+            },
+        ));
+    }
+    content = content.push(
+        row![
+            button(text("Copy diagnostics").size(FONT_SMALL))
+                .on_press(Message::AmdCopyDiagnostics)
+                .style(btn_style),
+        ]
+        .spacing(6),
+    );
+    if let Some(ref err) = snap.cpu_power_error {
+        content = content.push(text(err.as_str()).size(FONT_SMALL).style(move |_theme| {
+            iced::widget::text::Style {
+                color: Some(pal.error),
+            }
+        }));
+    }
+    if snap.amd_preview {
+        content = content.push(
+            text("PREVIEW: mock PM-table data; writes disabled")
+                .size(FONT_SMALL)
+                .style(move |_theme| iced::widget::text::Style {
+                    color: Some(pal.warning),
+                }),
+        );
+    } else {
+        content = content.push(
+            text("AMD writes are experimental. Verify the PM-table readback after Apply.")
+                .size(FONT_SMALL)
+                .style(move |_theme| iced::widget::text::Style {
+                    color: Some(pal.gray),
+                }),
         );
     }
     content.into()

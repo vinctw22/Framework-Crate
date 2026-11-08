@@ -56,6 +56,19 @@ pub(crate) struct ViewSnapshot {
     pub cpu_power: Arc<crate::cpu_power::CpuPowerInfo>,
     pub amd_cpu: bool,
     pub amd_power: Arc<crate::cpu_power::AmdPowerInfo>,
+    pub amd_stapm_edit: Arc<String>,
+    pub amd_fast_edit: Arc<String>,
+    pub amd_slow_edit: Arc<String>,
+    pub amd_tctl_edit: Arc<String>,
+    pub amd_apply_busy: bool,
+    pub amd_write_enabled: bool,
+    pub amd_preview: bool,
+    pub amd_preview_full: bool,
+    pub amd_profile_is_ac: bool,
+    pub amd_profile_ac_saved: bool,
+    pub amd_profile_battery_saved: bool,
+    pub amd_profile_ac_initial: bool,
+    pub amd_profile_battery_initial: bool,
     pub show_cpu_power_settings: bool,
     pub show_curve_settings: bool,
     pub pl_custom_applied: bool,
@@ -122,6 +135,15 @@ impl ViewSnapshot {
         let (pl_profile_ac_initial, pl_profile_battery_initial) = (
             config.cpu_power.ac_initial.is_some(),
             config.cpu_power.battery_initial.is_some(),
+        );
+        let amd_write_enabled = config.cpu_power.amd_write_experimental;
+        let (amd_profile_ac_saved, amd_profile_battery_saved) = (
+            config.cpu_power.amd_ac.is_some(),
+            config.cpu_power.amd_battery.is_some(),
+        );
+        let (amd_profile_ac_initial, amd_profile_battery_initial) = (
+            config.cpu_power.amd_ac_initial.is_some(),
+            config.cpu_power.amd_battery_initial.is_some(),
         );
         let per_fan_curve_points: Arc<Vec<Vec<[u32; 2]>>> = config
             .fan
@@ -204,6 +226,19 @@ impl ViewSnapshot {
             cpu_power,
             amd_cpu: app.state.system.amd_cpu.load(Ordering::Acquire),
             amd_power,
+            amd_stapm_edit: Arc::new(app.amd_stapm_edit.clone()),
+            amd_fast_edit: Arc::new(app.amd_fast_edit.clone()),
+            amd_slow_edit: Arc::new(app.amd_slow_edit.clone()),
+            amd_tctl_edit: Arc::new(app.amd_tctl_edit.clone()),
+            amd_apply_busy: app.amd_apply_busy,
+            amd_write_enabled: amd_write_enabled || app.amd_preview_full,
+            amd_preview: app.amd_preview,
+            amd_preview_full: app.amd_preview_full,
+            amd_profile_is_ac: app.amd_profile_is_ac,
+            amd_profile_ac_saved: amd_profile_ac_saved || app.amd_preview_full,
+            amd_profile_battery_saved: amd_profile_battery_saved || app.amd_preview_full,
+            amd_profile_ac_initial: amd_profile_ac_initial || app.amd_preview_full,
+            amd_profile_battery_initial: amd_profile_battery_initial || app.amd_preview_full,
             show_cpu_power_settings: app.show_cpu_power_settings,
             show_curve_settings: app.show_curve_settings,
             pl_custom_applied: app.pl_custom_applied.load(Ordering::Acquire),
