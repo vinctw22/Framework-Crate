@@ -724,6 +724,8 @@ impl AmdPowerProfile {
             && watts(self.slow_watts)
             && self.tctl_c.is_finite()
             && (40.0..=105.0).contains(&self.tctl_c)
+            && self.slow_watts >= self.stapm_watts
+            && self.fast_watts >= self.slow_watts
     }
 
     pub fn from_info(info: &crate::cpu_power::AmdPowerInfo) -> Self {
@@ -807,6 +809,31 @@ pub fn sorted_sensor_list(selected: &[String], sensor_keys: &[String]) -> Vec<St
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn amd_profile_requires_stapm_slow_fast_order() {
+        let ok = AmdPowerProfile {
+            stapm_watts: 25.0,
+            fast_watts: 45.0,
+            slow_watts: 35.0,
+            tctl_c: 90.0,
+        };
+        assert!(ok.is_valid());
+        assert!(
+            !AmdPowerProfile {
+                slow_watts: 20.0,
+                ..ok
+            }
+            .is_valid()
+        );
+        assert!(
+            !AmdPowerProfile {
+                fast_watts: 30.0,
+                ..ok
+            }
+            .is_valid()
+        );
+    }
 
     #[test]
     fn validate_unknown_theme_falls_back_to_default() {

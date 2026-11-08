@@ -135,6 +135,12 @@ pub(super) fn validate_request(req: &LimitRequest) -> Result<(), String> {
             "Tctl must be between {MIN_TCTL_C:.0} and {MAX_TCTL_C:.0} °C"
         ));
     }
+    if req.slow_w < req.stapm_w {
+        return Err("PPT Slow must be at least STAPM".to_string());
+    }
+    if req.fast_w < req.slow_w {
+        return Err("PPT Fast must be at least PPT Slow".to_string());
+    }
     Ok(())
 }
 
@@ -211,6 +217,12 @@ mod tests {
         req.tctl_c = 39.9;
         assert!(validate_request(&req).is_err());
         req.tctl_c = 105.1;
+        assert!(validate_request(&req).is_err());
+        let mut req = ok;
+        req.slow_w = 20.0;
+        assert!(validate_request(&req).is_err());
+        let mut req = ok;
+        req.fast_w = 30.0;
         assert!(validate_request(&req).is_err());
     }
 }
