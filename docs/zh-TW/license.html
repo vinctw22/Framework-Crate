@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="zh-Hant-TW">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>授權 — Framework Crate</title>
+<meta name="description" content="Framework Crate 採用 MIT 授權，並使用下列開源專案。">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Framework Crate">
+<meta property="og:title" content="授權 — Framework Crate">
+<meta property="og:description" content="Framework Crate 採用 MIT 授權，並使用下列開源專案。">
+<meta property="og:url" content="https://vinctw22.github.io/Framework-Crate/zh-TW/license.html">
+<meta property="og:image" content="https://raw.githubusercontent.com/vinctw22/Framework-Crate/master/images/Framework-Crate-v0.9.5-1.png">
+<meta property="og:image:alt" content="Framework Crate main window">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="stylesheet" href="../style.css">
+<link rel="icon" href="../icon.png" type="image/png">
+<link rel="icon" href="../icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="../icon.png">
+<script>
+(function () {
+  try {
+    var pref = localStorage.getItem("fc-lang");
+    if (pref === "en") { location.replace("../license.html"); return; }
+    if (pref === "zh-TW") return;
+    var langs = (navigator.languages && navigator.languages.length)
+      ? navigator.languages : [navigator.language || ""];
+    var wantsZh = langs.some(function (l) {
+      return (l || "").toLowerCase().indexOf("zh") === 0;
+    });
+    if (!wantsZh) location.replace("../license.html");
+  } catch (e) {}
+})();
+</script>
+</head>
+<body>
+<header class="site"><div class="wrap nav-row">
+<a class="brand" href="index.html"><svg class="brand-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M12 15C13.6569 15 15 13.6569 15 12C15 10.3431 13.6569 9 12 9C10.3431 9 9 10.3431 9 12C9 13.6569 10.3431 15 12 15Z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M19.6224 10.3954L18.5247 7.7448L20 6L18 4L16.2647 5.48295L13.5578 4.36974L12.9353 2H10.981L10.3491 4.40113L7.70441 5.51596L6 4L4 6L5.45337 7.78885L4.3725 10.4463L2 11V13L4.40111 13.6555L5.51575 16.2997L4 18L6 20L7.79116 18.5403L10.397 19.6123L11 22H13L13.6045 19.6132L16.2551 18.5155C16.6969 18.8313 18 20 18 20L20 18L18.5159 16.2494L19.6139 13.598L21.9999 12.9772L22 11L19.6224 10.3954Z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>Framework Crate</a>
+<nav><a class="pill" href="index.html">首頁</a><a class="pill" href="downloads.html">下載</a><a class="pill" href="changelog.html">版本紀錄</a><a class="pill" href="contribute.html">參與貢獻</a><a class="pill" href="privacy.html">隱私</a><a class="pill active" href="license.html">授權</a><a class="pill" href="security.html">安全性</a><a class="pill" href="limitations.html">限制</a><a class="pill" href="https://github.com/vinctw22/Framework-Crate">GitHub</a><a class="pill" href="../license.html" onclick="try{localStorage.setItem(\'fc-lang\',\'en\')}catch(e){}">English</a></nav>
+</div></header>
+<div class="wrap">
+
+<h2>Framework Crate — MIT 授權</h2>
+<p class="muted">Copyright (c) 2026 Vincent Chang · 完整 <code>LICENSE</code> 文字在 repository 中。</p>
+<pre>MIT License
+
+Copyright (c) 2026 Vincent Chang
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.</pre>
+
+<h2>第三方元件</h2>
+<p>Framework Crate 使用下列開源專案，各自採用不同授權（About 頁面也有列出）：</p>
+<table>
+<tr><th>元件</th><th>授權</th><th>說明</th></tr>
+<tr><td>framework_lib</td><td>BSD-3-Clause</td><td>EC 硬體存取</td></tr>
+<tr><td>PawnIO（選用）</td><td>GPL-2.0</td><td>CPU 功耗控制用的另行下載；未隨程式散布</td></tr>
+<tr><td>PawnIO Modules（選用）</td><td>LGPL-2.1</td><td>另行下載；SHA-256 驗證（Intel MSR/MMIO 與 AMD RyzenSMU）</td></tr>
+<tr><td>iced / tokio / tracing</td><td>MIT</td><td>UI、async runtime、日誌</td></tr>
+<tr><td>serde / windows-sys / toml / dirs / parking_lot / smallvec</td><td>MIT OR Apache-2.0</td><td>序列化、Win32 binding、設定、路徑、鎖</td></tr>
+</table>
+<p class="muted">間接依賴與完整授權文字記錄在 <code>Cargo.lock</code> 與各 crate 套件中。若重新散布本程式，請保留上方 MIT 聲明並遵守各元件授權 — 特別是若你一併散布 PawnIO，GPL-2.0 條款會適用。</p>
+
+<footer>
+<p>Framework Crate by Vincent Chang · MIT 授權 · © <span id="year">2026</span> · <a href="privacy.html">隱私</a> · <a href="license.html">授權</a> · <a href="security.html">安全性</a> · <a href="limitations.html">Limitations</a> · <a href="https://github.com/vinctw22/Framework-Crate">GitHub</a></p>
+</footer>
+<script>document.getElementById("year").textContent = new Date().getFullYear();</script>
+</div>
+</body>
+</html>

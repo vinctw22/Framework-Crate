@@ -6,7 +6,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        Thanks for testing AMD CPU Power. Please follow `Ryzen_Power_Testing.md` and only enable
+        Thanks for testing AMD CPU Power. Please follow `Ryzen_Power_Testing.md` (or `Ryzen_Power_Testing.zh-TW.md`) and only enable
         **experimental AMD writes** when you accept the risk. Never paste serial numbers,
         tokens, or personal data.
 

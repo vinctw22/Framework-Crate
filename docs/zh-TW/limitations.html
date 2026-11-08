@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="zh-Hant-TW">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>已知限制 — Framework Crate</title>
+<meta name="description" content="Framework Crate 支援的硬體、平台限制與已知問題。">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Framework Crate">
+<meta property="og:title" content="已知限制 — Framework Crate">
+<meta property="og:description" content="Framework Crate 支援的硬體、平台限制與已知問題。">
+<meta property="og:url" content="https://vinctw22.github.io/Framework-Crate/zh-TW/limitations.html">
+<meta property="og:image" content="https://raw.githubusercontent.com/vinctw22/Framework-Crate/master/images/Framework-Crate-v0.9.5-1.png">
+<meta property="og:image:alt" content="Framework Crate main window">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="stylesheet" href="../style.css">
+<link rel="icon" href="../icon.png" type="image/png">
+<link rel="icon" href="../icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="../icon.png">
+<script>
+(function () {
+  try {
+    var pref = localStorage.getItem("fc-lang");
+    if (pref === "en") { location.replace("../limitations.html"); return; }
+    if (pref === "zh-TW") return;
+    var langs = (navigator.languages && navigator.languages.length)
+      ? navigator.languages : [navigator.language || ""];
+    var wantsZh = langs.some(function (l) {
+      return (l || "").toLowerCase().indexOf("zh") === 0;
+    });
+    if (!wantsZh) location.replace("../limitations.html");
+  } catch (e) {}
+})();
+</script>
+</head>
+<body>
+<header class="site"><div class="wrap nav-row">
+<a class="brand" href="index.html"><svg class="brand-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M12 15C13.6569 15 15 13.6569 15 12C15 10.3431 13.6569 9 12 9C10.3431 9 9 10.3431 9 12C9 13.6569 10.3431 15 12 15Z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M19.6224 10.3954L18.5247 7.7448L20 6L18 4L16.2647 5.48295L13.5578 4.36974L12.9353 2H10.981L10.3491 4.40113L7.70441 5.51596L6 4L4 6L5.45337 7.78885L4.3725 10.4463L2 11V13L4.40111 13.6555L5.51575 16.2997L4 18L6 20L7.79116 18.5403L10.397 19.6123L11 22H13L13.6045 19.6132L16.2551 18.5155C16.6969 18.8313 18 20 18 20L20 18L18.5159 16.2494L19.6139 13.598L21.9999 12.9772L22 11L19.6224 10.3954Z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>Framework Crate</a>
+<nav><a class="pill" href="index.html">首頁</a><a class="pill" href="downloads.html">下載</a><a class="pill" href="changelog.html">版本紀錄</a><a class="pill" href="contribute.html">參與貢獻</a><a class="pill" href="privacy.html">隱私</a><a class="pill" href="license.html">授權</a><a class="pill" href="security.html">安全性</a><a class="pill active" href="limitations.html">限制</a><a class="pill" href="https://github.com/vinctw22/Framework-Crate">GitHub</a><a class="pill" href="../limitations.html" onclick="try{localStorage.setItem(\'fc-lang\',\'en\')}catch(e){}">English</a></nav>
+</div></header>
+<div class="wrap">
+
+<p class="muted">已解決的問題與目前仍存在的限制，方便安裝前評估。</p>
+
+<h2>已解決</h2>
+<ul class="tight">
+<li><strong>風扇曲線座標。</strong> 改為畫布直接拖曳，點保持穩定，快取渲染會依內容變更失效（v0.3.0）。</li>
+<li><strong>USB-C 與 USB-A 分類。</strong> 曾回報 Sink role 的連接埠會固定為 USB-C，插拔擴充卡上的裝置不再翻轉類型（v0.3.0）。</li>
+<li><strong>睡眠／休眠風扇控制。</strong> Resume 會重置 EC client 與 curve stepper、每 30 秒重送 fan duty，並以 wall-clock jump fallback 涵蓋漏掉的 resume 事件（v0.3.0，v0.9.0 強化）。</li>
+<li><strong>MMIO mirror 設計上唯讀。</strong> 官方 Intel MCHBAR 模組只提供讀取，因此 Apply 只寫 MSR 0x610；mirror 仍用於顯示與 <code>min(MSR, MMIO)</code> 有效值估計。MSR 寫入已足夠本程式的 CPU 功耗控制。</li>
+</ul>
+
+<h2>未解決</h2>
+<ul class="tight">
+<li><strong>AMD CPU Power 寫入為實驗性。</strong> RyzenSMU 卡片可讀取 STAPM／PPT Fast／PPT Slow／Tctl 並套用 AC／Battery profiles，但要勾選「Enable experimental AMD writes」才會寫入。維護者沒有 AMD 硬體，各 CPU 世代的命令行為仍需社群驗證。</li>
+<li><strong>測試平台有限。</strong> 只在 Intel Core Ultra Series 1（Meteor Lake）Framework 筆電測試；必須安裝 Framework EC kernel driver。</li>
+<li><strong>逐風扇曲線缺少多風扇驗證。</strong> 只有模擬 EC 的單元測試 — 沒有 Framework 16／Desktop 硬體。單風扇機種走完全相同的既有路徑。</li>
+<li><strong>崩潰會保留最後狀態。</strong> 正常退出會還原韌體風扇控制並 flush 充電上限；崩潰或強制終止會跳過該路徑，EC 會保留最後寫入的 fan duty，直到睡眠、重開機或下次啟動。</li>
+<li><strong>登出交接不可靠。</strong> 部分 Windows 11 提權環境不會把 session-end broadcast 送到托盤視窗，手動／曲線 duty 可能在登出後持續。風扇由手動／曲線控制時，登出前請使用 <strong>Restore Auto &amp; Exit</strong>。</li>
+<li><strong>沒有 DP-alt 的 HDMI/DP 卡可能誤標。</strong> 連接埠類型由 PD 狀態推斷；省略 DP-alt 又消耗 ~3–5 W 的卡可能顯示錯誤標籤。About 頁的 Ports Debug Mode 可看原始 role／watts。</li>
+</ul>
+
+<footer>
+<p>Framework Crate by Vincent Chang · MIT 授權 · © <span id="year">2026</span> · <a href="privacy.html">隱私</a> · <a href="license.html">授權</a> · <a href="security.html">安全性</a> · <a href="limitations.html">Limitations</a> · <a href="https://github.com/vinctw22/Framework-Crate">GitHub</a></p>
+</footer>
+<script>document.getElementById("year").textContent = new Date().getFullYear();</script>
+</div>
+</body>
+</html>

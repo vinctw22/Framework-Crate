@@ -1,5 +1,7 @@
 # AMD CPU Power testing
 
+[English](Ryzen_Power_Testing.md) | [繁體中文](Ryzen_Power_Testing.zh-TW.md)
+
 AMD write support is experimental. Use this checklist to collect comparable results.
 Read-only telemetry is safe; writes require **Enable experimental AMD writes** and can
 be rejected or clamped by firmware.

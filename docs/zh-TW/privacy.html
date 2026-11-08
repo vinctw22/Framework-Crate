@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="zh-Hant-TW">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>隱私政策 — Framework Crate</title>
+<meta name="description" content="Framework Crate 如何在本機儲存資料，以及不會上傳哪些內容。">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Framework Crate">
+<meta property="og:title" content="隱私政策 — Framework Crate">
+<meta property="og:description" content="Framework Crate 如何在本機儲存資料，以及不會上傳哪些內容。">
+<meta property="og:url" content="https://vinctw22.github.io/Framework-Crate/zh-TW/privacy.html">
+<meta property="og:image" content="https://raw.githubusercontent.com/vinctw22/Framework-Crate/master/images/Framework-Crate-v0.9.5-1.png">
+<meta property="og:image:alt" content="Framework Crate main window">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="stylesheet" href="../style.css">
+<link rel="icon" href="../icon.png" type="image/png">
+<link rel="icon" href="../icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="../icon.png">
+<script>
+(function () {
+  try {
+    var pref = localStorage.getItem("fc-lang");
+    if (pref === "en") { location.replace("../privacy.html"); return; }
+    if (pref === "zh-TW") return;
+    var langs = (navigator.languages && navigator.languages.length)
+      ? navigator.languages : [navigator.language || ""];
+    var wantsZh = langs.some(function (l) {
+      return (l || "").toLowerCase().indexOf("zh") === 0;
+    });
+    if (!wantsZh) location.replace("../privacy.html");
+  } catch (e) {}
+})();
+</script>
+</head>
+<body>
+<header class="site"><div class="wrap nav-row">
+<a class="brand" href="index.html"><svg class="brand-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M12 15C13.6569 15 15 13.6569 15 12C15 10.3431 13.6569 9 12 9C10.3431 9 9 10.3431 9 12C9 13.6569 10.3431 15 12 15Z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M19.6224 10.3954L18.5247 7.7448L20 6L18 4L16.2647 5.48295L13.5578 4.36974L12.9353 2H10.981L10.3491 4.40113L7.70441 5.51596L6 4L4 6L5.45337 7.78885L4.3725 10.4463L2 11V13L4.40111 13.6555L5.51575 16.2997L4 18L6 20L7.79116 18.5403L10.397 19.6123L11 22H13L13.6045 19.6132L16.2551 18.5155C16.6969 18.8313 18 20 18 20L20 18L18.5159 16.2494L19.6139 13.598L21.9999 12.9772L22 11L19.6224 10.3954Z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>Framework Crate</a>
+<nav><a class="pill" href="index.html">首頁</a><a class="pill" href="downloads.html">下載</a><a class="pill" href="changelog.html">版本紀錄</a><a class="pill" href="contribute.html">參與貢獻</a><a class="pill active" href="privacy.html">隱私</a><a class="pill" href="license.html">授權</a><a class="pill" href="security.html">安全性</a><a class="pill" href="limitations.html">限制</a><a class="pill" href="https://github.com/vinctw22/Framework-Crate">GitHub</a><a class="pill" href="../privacy.html" onclick="try{localStorage.setItem(\'fc-lang\',\'en\')}catch(e){}">English</a></nav>
+</div></header>
+<div class="wrap">
+
+<p class="muted">生效日期：2026 年 11 月。適用於 Framework Crate Windows 桌面程式。</p>
+
+<div class="card"><strong>簡短版：</strong> Framework Crate 完全離線運作。不收集個人資料、不建立帳號、不執行分析或追蹤，除非你明確按下需要網路的按鈕，否則不會傳送任何內容。</div>
+
+<h2>裝置上儲存的資料</h2>
+<p>程式需要的資料都在你自己的電腦上，位於 <code>%APPDATA%\framework-crate</code>：</p>
+<ul class="tight">
+<li><strong>設定</strong>（<code>config.toml</code>）— 風扇曲線、充電上限、遙測、主題、CPU 功耗 profiles 與擷取的 CPU 功耗 baseline。</li>
+<li><strong>BIOS 功耗預設</strong>（<code>bios_defaults.toml</code>）— Reset 使用的原廠 CPU 功耗限制快照。</li>
+<li><strong>日誌檔</strong>（<code>app.log</code>，依大小輪替）— 用於診斷問題的本機警告／錯誤。</li>
+</ul>
+<p>硬體讀值（溫度、風扇 RPM、電池與 PD 狀態）只在記憶體中處理，用於驅動 UI 與風扇控制，絕不會上傳。</p>
+
+<h2>網路使用（僅在你明確操作時）</h2>
+<ul class="tight">
+<li><strong>檢查更新</strong>（About 頁按鈕）— 查詢 GitHub API（<code>api.github.com</code>）取得本 repository 最新 release tag。僅通知，不下載任何內容。</li>
+<li><strong>PawnIO 安裝／模組下載</strong>（CPU Power 頁按鈕）— 透過 HTTPS 從官方 PawnIO 來源（winget、<code>github.com/namazso/PawnIO.Modules</code>）下載簽章元件。選用；其餘功能不需要。</li>
+</ul>
+<p>程式不會在背景輪詢網路，也不會連線其他伺服器。</p>
+
+<h2>權限</h2>
+<p>程式要求管理員權限，因為 EC 驅動與 CPU 功耗暫存器需要。提權僅用於本機硬體存取。</p>
+
+<h2>兒童</h2>
+<p>本程式不向任何人收集資料，包括 13 歲以下兒童。</p>
+
+<h2>變更</h2>
+<p>本政策的重大變更會公布在此頁並更新生效日期。</p>
+
+<h2>聯絡</h2>
+<p>問題請開 <a href="https://github.com/vinctw22/Framework-Crate/issues">GitHub Issue</a>。</p>
+
+<footer>
+<p>Framework Crate by Vincent Chang · MIT 授權 · © <span id="year">2026</span> · <a href="privacy.html">隱私</a> · <a href="license.html">授權</a> · <a href="security.html">安全性</a> · <a href="limitations.html">Limitations</a> · <a href="https://github.com/vinctw22/Framework-Crate">GitHub</a></p>
+</footer>
+<script>document.getElementById("year").textContent = new Date().getFullYear();</script>
+</div>
+</body>
+</html>

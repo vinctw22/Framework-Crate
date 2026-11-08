@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="zh-Hant-TW">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Framework Crate — Framework 筆電控制中心</title>
+<meta name="description" content="專為 Framework 筆電設計的 Windows 原生控制中心：風扇曲線、電池充電上限、CPU 功耗與即時遙測。免費且開源。">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Framework Crate">
+<meta property="og:title" content="Framework Crate — Framework 筆電控制中心">
+<meta property="og:description" content="專為 Framework 筆電設計的 Windows 原生控制中心：風扇曲線、電池充電上限、CPU 功耗與即時遙測。免費且開源。">
+<meta property="og:url" content="https://vinctw22.github.io/Framework-Crate/zh-TW/">
+<meta property="og:image" content="https://raw.githubusercontent.com/vinctw22/Framework-Crate/master/images/Framework-Crate-v0.9.5-1.png">
+<meta property="og:image:alt" content="Framework Crate 主畫面">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="stylesheet" href="../style.css">
+<link rel="icon" href="../icon.png" type="image/png">
+<link rel="icon" href="../icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="../icon.png">
+<script>
+(function () {
+  try {
+    var pref = localStorage.getItem("fc-lang");
+    if (pref === "en") { location.replace("../index.html"); return; }
+    if (pref === "zh-TW") return;
+    var langs = (navigator.languages && navigator.languages.length)
+      ? navigator.languages : [navigator.language || ""];
+    var wantsZh = langs.some(function (l) {
+      return (l || "").toLowerCase().indexOf("zh") === 0;
+    });
+    if (!wantsZh) location.replace("../index.html");
+  } catch (e) {}
+})();
+</script>
+</head>
+<body>
+<header class="site"><div class="wrap nav-row">
+<a class="brand" href="index.html"><svg class="brand-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M12 15C13.6569 15 15 13.6569 15 12C15 10.3431 13.6569 9 12 9C10.3431 9 9 10.3431 9 12C9 13.6569 10.3431 15 12 15Z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M19.6224 10.3954L18.5247 7.7448L20 6L18 4L16.2647 5.48295L13.5578 4.36974L12.9353 2H10.981L10.3491 4.40113L7.70441 5.51596L6 4L4 6L5.45337 7.78885L4.3725 10.4463L2 11V13L4.40111 13.6555L5.51575 16.2997L4 18L6 20L7.79116 18.5403L10.397 19.6123L11 22H13L13.6045 19.6132L16.2551 18.5155C16.6969 18.8313 18 20 18 20L20 18L18.5159 16.2494L19.6139 13.598L21.9999 12.9772L22 11L19.6224 10.3954Z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>Framework Crate</a>
+<nav><a class="pill active" href="index.html">首頁</a><a class="pill" href="downloads.html">下載</a><a class="pill" href="changelog.html">版本紀錄</a><a class="pill" href="contribute.html">參與貢獻</a><a class="pill" href="privacy.html">隱私</a><a class="pill" href="license.html">授權</a><a class="pill" href="security.html">安全性</a><a class="pill" href="limitations.html">限制</a><a class="pill" href="https://github.com/vinctw22/Framework-Crate">GitHub</a><a class="pill" href="../index.html" onclick="try{localStorage.setItem(\'fc-lang\',\'en\')}catch(e){}">English</a></nav>
+</div></header>
+<div class="wrap">
+
+<section class="hero">
+<div class="hero-text">
+<h1>Framework 筆電的<span class="grad">控制中心</span></h1>
+<p>Framework 筆電的風扇控制、電池限制與即時遙測。<br>以 Rust 打造的原生 Windows 應用程式。</p>
+<div class="hero-actions">
+<a class="btn btn-big" href="downloads.html">下載</a>
+<a class="btn btn-big btn-ghost" href="https://github.com/vinctw22/Framework-Crate">原始碼</a>
+</div>
+<div class="stats">
+<div><span class="stat-num">免費</span><span class="stat-label">開源</span></div>
+<div><span class="stat-num" id="stat-dl">…</span><span class="stat-label">總下載次數</span></div>
+<div><a id="stat-stars-link" href="https://github.com/vinctw22/Framework-Crate"><span class="stat-num" id="stat-stars">…</span><span class="stat-label">GitHub 星星</span></a></div>
+</div>
+</div>
+<div class="hero-shot"><img src="https://raw.githubusercontent.com/vinctw22/Framework-Crate/master/images/Framework-Crate-v0.9.5-1.png" alt="Framework Crate 主畫面"></div>
+</section>
+<script>
+(function () {
+  var repo = "vinctw22/Framework-Crate";
+  var relP = fetch("https://api.github.com/repos/" + repo + "/releases?per_page=100").then(function (r) {
+    if (!r.ok) throw new Error(r.status);
+    return r.json();
+  });
+  var repoP = fetch("https://api.github.com/repos/" + repo).then(function (r) {
+    if (!r.ok) throw new Error(r.status);
+    return r.json();
+  }).catch(function () { return null; });
+  Promise.all([relP, repoP]).then(function (vals) {
+    var releases = vals[0], info = vals[1];
+    if (!releases.length) throw new Error("no releases");
+    var total = 0;
+    releases.forEach(function (rel) {
+      (rel.assets || []).forEach(function (a) {
+        if (/\.exe$/i.test(a.name || "")) total += a.download_count || 0;
+      });
+    });
+    document.getElementById("stat-dl").textContent = total.toLocaleString("en-US");
+    if (info && typeof info.stargazers_count === "number") {
+      document.getElementById("stat-stars").textContent = info.stargazers_count;
+    }
+  }).catch(function () {
+    document.getElementById("stat-dl").textContent = "—";
+    document.getElementById("stat-stars").textContent = "—";
+  });
+  document.getElementById("year").textContent = new Date().getFullYear();
+})();
+</script>
+
+<h2>螢幕截圖</h2>
+<div class="shots">
+<figure class="shot"><img src="https://raw.githubusercontent.com/vinctw22/Framework-Crate/master/images/Framework-Crate-v0.9.5-1.png" alt="顯示感測器、風扇控制、電池與 CPU 功耗的儀表板"><figcaption>儀表板 — 即時感測器、風扇曲線、電池與 CPU 功耗一目了然。</figcaption></figure>
+<figure class="shot"><img src="https://raw.githubusercontent.com/vinctw22/Framework-Crate/master/images/Framework-Crate-v0.9.5-2.png" alt="風扇控制設定：滯後、速率限制、感測器選擇與校準"><figcaption>風扇控制 — 曲線編輯、滯後、速率限制、感測器與 RPM 校準。</figcaption></figure>
+<figure class="shot"><img src="https://raw.githubusercontent.com/vinctw22/Framework-Crate/master/images/Framework-Crate-v0.9.5-8.png" alt="手動風扇模式：duty 滑桿與感測器設定"><figcaption>風扇模式 — 韌體 Auto、手動 duty，以及感測器／圖表視窗設定。</figcaption></figure>
+<figure class="shot"><img src="https://raw.githubusercontent.com/vinctw22/Framework-Crate/master/images/Framework-Crate-v0.9.5-3.png" alt="CPU 功耗設定：PL1/PL2 控制與 MSR 讀值"><figcaption>CPU 功耗 — PL1/PL2 限制、turbo 讀值與 MSR/MMIO 診斷。</figcaption></figure>
+<figure class="shot"><img src="https://raw.githubusercontent.com/vinctw22/Framework-Crate/master/images/Framework-Crate-Ryzen-CPU-Power-experimental.png" alt="AMD Ryzen CPU 功耗預覽：STAPM、PPT Fast、PPT Slow 與 Tctl"><figcaption>AMD CPU 功耗（預覽）— RyzenSMU STAPM/PPT/Tctl 與實驗性 AC／Battery profiles。</figcaption></figure>
+<figure class="shot"><img src="https://raw.githubusercontent.com/vinctw22/Framework-Crate/master/images/Framework-Crate-v0.9.5-7.png" alt="電池詳細資料：健康度、容量、電芯與電池組溫度"><figcaption>電池 — 充電上限、健康度、容量與智慧電池細節。</figcaption></figure>
+<figure class="shot"><img src="https://raw.githubusercontent.com/vinctw22/Framework-Crate/master/images/Framework-Crate-v0.9.5-4.png" alt="隱私開關、鍵盤背光、指紋 LED 與連接埠標籤"><figcaption>隱私與連接埠 — 相機／麥克風開關、背光、指紋 LED 與 PD 連接埠標籤。</figcaption></figure>
+<figure class="shot"><img src="https://raw.githubusercontent.com/vinctw22/Framework-Crate/master/images/Framework-Crate-v0.9.5-5.png" alt="About 頁面：主題、更新與 CPU 功耗 keep-alive"><figcaption>About — 韌體版本、主題、更新與 CPU 功耗 keep-alive 開關。</figcaption></figure>
+<figure class="shot"><img src="https://raw.githubusercontent.com/vinctw22/Framework-Crate/master/images/Framework-Crate-v0.9.5-6.png" alt="About 頁面卷動到軟體、主題、更新與授權"><figcaption>About — 軟體版本、主題選擇、更新輔助與授權。</figcaption></figure>
+</div>
+
+<h2>主要功能</h2>
+<ul class="tight">
+<li><strong>曲線編輯器</strong> — 可拖曳點、滯後、逐風扇曲線、RPM 校準。</li>
+<li><strong>CPU 功耗</strong> — Intel PL1/PL2 讀寫、turbo 讀值、原廠重置，以及可選的睡眠／AC 切換後 keep-alive。AMD RyzenSMU 支援顯示 STAPM／PPT／Tctl，並在實驗性 opt-in 後提供相同 profiles。</li>
+<li><strong>電池照護</strong> — 充電上限、健康度、智慧電池細節。</li>
+<li><strong>遙測</strong> — 溫度圖、感測器讀值、隱私開關、連接埠標籤。</li>
+</ul>
+<p class="muted">已在 Intel Core Ultra Series 1 的 Framework Laptop 測試；AMD RyzenSMU 支援為實驗性。需要 Windows 10/11 與管理員權限。沒有帳號、沒有遙測。</p>
+
+<footer>
+<p>Framework Crate by Vincent Chang · MIT 授權 · © <span id="year">2026</span> · <a href="privacy.html">隱私</a> · <a href="license.html">授權</a> · <a href="security.html">安全性</a> · <a href="limitations.html">Limitations</a> · <a href="https://github.com/vinctw22/Framework-Crate">GitHub</a></p>
+</footer>
+</div>
+<script>document.getElementById("year").textContent = new Date().getFullYear();</script>
+</body>
+</html>
