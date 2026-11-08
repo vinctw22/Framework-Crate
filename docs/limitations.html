@@ -25,11 +25,19 @@
 </div></header>
 <div class="wrap">
 
-<p class="muted">What the app cannot do today, so you can judge fit before installing.</p>
+<p class="muted">Resolved issues and the limitations still open today, so you can judge fit before installing.</p>
 
+<h2>Resolved</h2>
 <ul class="tight">
-<li><strong>AMD CPU Power is not supported yet.</strong> The CPU Power card shows Not Supported and no power-limit access is attempted. AMD (Ryzen) power tuning is planned through PawnIO and its RyzenSMU module, but the maintainer has no AMD hardware — it will ship only after community testing verifies the register behavior per CPU generation.</li>
-<li><strong>MMIO mirror is read-only.</strong> The official Intel MCHBAR module exposes reads only, so Apply writes MSR 0x610 alone (the optional keepalive re-asserts the same register). The mirror is also the source for each source's captured AC/Battery default wall (updated only when the mirror value changes). If firmware holds the MMIO mirror below your MSR value, the enforced limit may not move.</li>
+<li><strong>Fan curve coordinates.</strong> Direct canvas drag editing keeps points stable and the cached rendering invalidates on content changes (v0.3.0).</li>
+<li><strong>USB-C vs USB-A classification.</strong> Ports that ever reported a Sink role stay classified as USB-C, so plugging a device into an expansion-card port no longer flips the type (v0.3.0).</li>
+<li><strong>Sleep/hibernate fan control.</strong> Resume resets the EC client and curve stepper, re-asserts fan duty every 30s, and a wall-clock jump fallback covers missed resume events (v0.3.0, hardened in v0.9.0).</li>
+<li><strong>MMIO mirror is read-only by design.</strong> The official Intel MCHBAR module exposes reads only, so Apply writes MSR 0x610; the mirror is still used for display and the effective <code>min(MSR, MMIO)</code> estimate. MSR writes are sufficient for the app's CPU power control.</li>
+</ul>
+
+<h2>Open</h2>
+<ul class="tight">
+<li><strong>AMD CPU Power writes are experimental.</strong> The RyzenSMU card reads STAPM/PPT Fast/PPT Slow/Tctl and can apply AC/Battery profiles, but writes stay disabled until “Enable experimental AMD writes” is checked. The maintainer has no AMD hardware, so command behavior per CPU generation still needs community verification.</li>
 <li><strong>Tested platform is narrow.</strong> Only Intel Core Ultra Series 1 (Meteor Lake) Framework laptops are tested; the Framework EC kernel driver must be installed.</li>
 <li><strong>Per-fan curves lack multi-fan verification.</strong> Covered by mocked unit tests only — no Framework 16 / Desktop hardware was available. Single-fan machines use the exact pre-existing code path.</li>
 <li><strong>Crash keeps the last state.</strong> Orderly quit restores firmware fan control and flushes the charge limit, but a crash or kill bypasses that path: the EC keeps the last written fan duty until sleep, reboot, or the next launch.</li>

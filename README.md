@@ -34,7 +34,12 @@ Download the `.exe`, then run it as administrator. PawnIO is optional and only n
     <td><img src="images/Framework-Crate-v0.9.5-5.png" width="400" alt="Framework Crate v0.9.5 About page with keep-alive toggle"></td>
     <td><img src="images/Framework-Crate-v0.9.5-6.png" width="400" alt="Framework Crate v0.9.5 About page with themes and license"></td>
   </tr>
+  <tr>
+    <td colspan="2" align="center"><img src="images/Framework-Crate-Ryzen-CPU-Power-experimental.png" width="600" alt="Framework Crate AMD Ryzen CPU Power experimental settings"></td>
+  </tr>
 </table>
+
+<p align="center"><strong>AMD CPU Power — experimental</strong> (preview data; writes require the experimental opt-in)</p>
 
 ## Features
 
@@ -44,7 +49,7 @@ Download the `.exe`, then run it as administrator. PawnIO is optional and only n
 - **Battery Management** — Maximum charge limit (25–100%) with enable/disable toggle; saved limit is applied on startup. Health uses last-full / design capacity. Details shows charger voltage/input on AC plus smart-battery data (per-cell voltages, pack temperature, safety alerts) when readable
 - **Live Telemetry** — Real-time temperature chart (selectable 15/30/60s window, default 30s), per-sensor display with colored indicators, and fan RPM in the header
 - **Misc Panel** — Camera/mic privacy switch states, keyboard backlight slider, fingerprint LED level, and USB-C / HDMI / DP port classification inferred from PD state
-- **CPU Power** — Intel: read/write PL1/PL2 via PawnIO (optional; SHA-256 verified module download); live turbo readout (current/limit GHz) when readable; original factory limits are saved on the first run while on AC for `Reset`. `Apply` saves the selected **AC** or **Battery** profile; while "Keep power limits applied" is enabled on the About page (persisted across launches), the matching profile is applied at startup and on every AC↔battery change. Writes go to MSR 0x610 only: the official IntelMCHBAR module is read-only, so the MMIO mirror is displayed but never written. Writes are capped per model (Laptop 12 → 40W, 13 → 70W, 16 → 100W, Desktop → 120W), require ≥5W when enabled, and require PL1 ≤ PL2. AMD: a read-only RyzenSMU card shows code name, SMU version, STAPM/PPT Fast/PPT Slow and Tctl from the PM table; AMD writes are in progress.
+- **CPU Power** — Intel: read/write PL1/PL2 via PawnIO (optional; SHA-256 verified module download); live turbo readout (current/limit GHz) when readable; original factory limits are saved on the first run while on AC for `Reset`. `Apply` saves the selected **AC** or **Battery** profile; while "Keep power limits applied" is enabled on the About page (persisted across launches), the matching profile is applied at startup and on every AC↔battery change. Writes go to MSR 0x610 only: the official IntelMCHBAR module is read-only, so the MMIO mirror is displayed but never written. Writes are capped per model (Laptop 12 → 40W, 13 → 70W, 16 → 100W, Desktop → 120W), require ≥5W when enabled, and require PL1 ≤ PL2. **AMD (experimental)**: a RyzenSMU card shows code name, SMU version, STAPM/PPT Fast/PPT Slow and Tctl from the PM table; AC/Battery profiles and the keep-alive toggle now work the same way as Intel. Writes require the explicit experimental opt-in and still need community hardware validation.
 - **About Page** — Hardware info (CPU, RAM, display, BIOS, board revision), PD controller firmware versions, software settings (poll rate, refresh interval, launch at startup, keep power limits applied), GitHub link, one-click copy buttons for the manual-download URLs, and third-party license notices
 - **Settings Backup** — Export settings to a file (native save dialog, machine-stamped) and import them back; strict validation rejects unknown fields and version mismatches, and a different chassis size is refused outright
 - **System Tray** — Minimize to tray, tray icon with context menu (Show / Quit) and hover tooltip with the current temperature, icon restored automatically if Explorer restarts
@@ -57,39 +62,10 @@ Download the `.exe`, then run it as administrator. PawnIO is optional and only n
 - Windows 10/11
 - Administrator privileges — required for EC access, for writing CPU power limits, and for enabling launch at startup
 
-## Build
 
-```bash
-cargo build --release
-```
 
-## Binary Size Checks
-
-```powershell
-# Debug build (larger because it keeps unoptimized code and full debug symbols)
-cargo build
-Get-Item .\target\debug\framework-crate.exe | Select-Object Name,Length
-
-# Release build (smaller and suitable for distribution)
-cargo build --release
-Get-Item .\target\release\framework-crate.exe | Select-Object Name,Length
-
-# Compare debug and release builds in one command
-cargo build; Get-Item .\target\debug\framework-crate.exe | Select-Object Name,Length; Get-Item .\target\release\framework-crate.exe | Select-Object Name,Length
-```
-
-Notes:
-
-- `debug` builds are intentionally larger because they keep full debug symbols and unoptimized code.
-- Use `release` artifacts for packaging and distribution.
-- If shipping a bundle, do not include the entire `target/` folder or `.pdb` files unless you need them for debugging.
-
-## Run
-
-```bash
-# Must run as administrator
-cargo run --release
-```
+<details>
+<summary><strong>Architecture & internals</strong></summary>
 
 ## Architecture
 
@@ -138,7 +114,7 @@ src/
       decode.rs        — Register encode/decode and read-back verification
       validate.rs      — RAPL unit and power/time range validation
       write.rs         — MSR write path and BIOS-default restore
-    amd/               — RyzenSMU read-only telemetry (code names, PM table)
+    amd/               — RyzenSMU telemetry and experimental power-limit writes
     ffi.rs             — PawnIOLib.dll binding and RAPL register access
     sync.rs            — Periodic PL1/PL2 re-assert (5 min keepalive)
     bios.rs            — Factory default capture and persistence
@@ -207,6 +183,11 @@ $p = Start-Process .\target\release\framework-crate.exe -PassThru
 $p.Kill()
 ```
 
+</details>
+
+<details>
+<summary><strong>Configuration reference</strong></summary>
+
 ## Configuration
 
 Config file location: `%APPDATA%/framework-crate/config.toml`
@@ -239,6 +220,7 @@ value = 80
 
 [cpu_power]
 keep_limits = true  # About -> "Keep power limits applied"
+amd_write_experimental = false  # AMD only; explicit opt-in for the unverified write path
 
 [cpu_power.ac]
 pl1_watts = 30.0
@@ -272,6 +254,22 @@ pl1_watts = 20.0
 pl1_time_s = 20.0
 pl2_watts = 45.0
 
+# AMD only. Writes require amd_write_experimental = true above.
+[cpu_power.amd_ac]
+stapm_watts = 25.0
+fast_watts = 45.0
+slow_watts = 35.0
+tctl_c = 90.0
+
+[cpu_power.amd_battery]
+stapm_watts = 15.0
+fast_watts = 30.0
+slow_watts = 25.0
+tctl_c = 85.0
+
+# First PM-table values per source; machine-local like the Intel initials.
+# [cpu_power.amd_ac_initial] / [cpu_power.amd_battery_initial]
+
 [telemetry]
 poll_ms = 500
 ui_refresh_ms = 100
@@ -279,6 +277,11 @@ selected_sensors = []
 ```
 
 The app also writes two internal top-level fields: `version` (config schema/migration marker) and `pl_custom_applied` (keeps the AC→battery PL reset armed across restarts). Leave them unchanged when editing the file by hand.
+
+</details>
+
+<details>
+<summary><strong>Startup, logs & environment</strong></summary>
 
 ## Launch at Startup
 
@@ -317,35 +320,39 @@ The file rotates once it grows past a size threshold, keeping `app.log.1` throug
 | `FRAMEWORK_ALLOW_UNKNOWN_MODULE_HASH=1` | Loads PawnIO module blobs whose hash is not pinned. Only after manual verification of a newer upstream release. Debug builds only; release builds always fail closed |
 | `FRAMEWORK_ALLOW_UNSIGNED_PAWNIO=1` | Loads the PawnIO DLL despite an Authenticode failure. For self-signed test DLLs. Debug builds only; release builds always fail closed |
 
+</details>
+
 ## Known Limitations
 
-- **AMD CPU Power writes are not supported yet**: the AMD card is read-only for now (RyzenSMU code name/SMU version and PM-table STAPM/PPT Fast/PPT Slow/Tctl). Writes are planned through PawnIO's RyzenSMU module; the maintainer has no AMD hardware, so they will ship only after community testing verifies command behavior per CPU generation.
-- **MMIO is read-only**: The official `IntelMCHBAR.bin` provides only `ioctl_read_qword`, so the app writes MSR 0x610 only. The MMIO mirror is displayed and used for the effective `min(MSR, MMIO)` estimate, but it is never written. If firmware/EC keeps the mirror at a lower limit, MSR-only writes may not change the enforced limit.
-- **Fan Curve Coordinates (resolved in v0.3.0)**: Earlier versions edited curve points with sliders and could leave the canvas axes / line segments misaligned until the next full redraw. v0.3.0 replaced the sliders with direct drag editing on the canvas — points keep their identity when dragged across each other, and the cached rendering invalidates on content changes, so the drawing always matches the numeric points used for fan duty.
-- **USB Expansion Card Classification (resolved in v0.3.0)**: Port type (USB-C / USB-A / HDMI / DP) is inferred from EC PD state. Since v0.3.0, ports that ever reported a Sink role are permanently classified as USB-C, so USB-C vs USB-A is no longer flipped when a device is plugged into an expansion-card port. HDMI/DP cards that omit DP-alt may still be mislabeled — use Expansion Card Debug Mode on the About page to inspect raw role / watts.
-- **Sleep / Hibernate Fan Control (resolved in v0.3.0, hardened in v0.9.0)**: Previously, fan-speed control could stop responding correctly after the system resumed from sleep or hibernation. v0.3.0 detects `WM_POWERBROADCAST` resume events (resetting the EC client, `CurveStepper` state, and thermal history) and additionally re-asserts the fan duty every 30 s, so the fans spin back up even if the resume event is missed. Consecutive EC read / write failures also trigger automatic client reinitialization. Since v0.9.0, all EC traffic goes through a single FIFO writer (no overtaking after resume) plus a wall-clock jump fallback when the resume event itself is missed.
-- **Platform-specific**: This project has only been tested on Intel Core Ultra Series 1 (Meteor Lake) Framework laptops.
-- **Per-fan curves need multi-fan verification**: per-fan curves (multi-fan machines, Unified off) are covered by unit tests with a mocked EC only — no multi-fan hardware (Framework 16 / Desktop) was available to verify the on-device behavior. Single-fan machines take the exact pre-existing code path.
-- **EC driver**: The Framework EC kernel driver must be installed for `framework_lib` to communicate with the hardware.
+### Resolved
+
+- **Fan Curve Coordinates (v0.3.0)**: sliders were replaced by direct canvas drag editing; points keep their identity when dragged across each other and the cached rendering invalidates on content changes.
+- **USB-C vs USB-A classification (v0.3.0)**: ports that ever reported a Sink role stay classified as USB-C, so plugging a device into an expansion-card port no longer flips the type.
+- **Sleep / Hibernate Fan Control (v0.3.0, hardened in v0.9.0)**: resume resets the EC client, `CurveStepper`, and thermal history; fan duty is re-asserted every 30s, all EC traffic uses one FIFO writer, and a wall-clock jump fallback covers missed resume events.
+- **MMIO mirror is read-only by design**: the official `IntelMCHBAR.bin` exposes reads only, so Apply writes MSR 0x610; the mirror is still read for display and the effective `min(MSR, MMIO)` estimate. MSR writes are sufficient for the app's CPU power control.
+
+### Open
+
+- **AMD CPU Power writes are experimental and opt-in**: the AMD card writes STAPM/PPT Fast/PPT Slow/Tctl through the RyzenSMU MP1/PSMU mailbox, reads the PM table back, and supports AC/Battery profiles plus the About keep-alive policy. Writes stay disabled until **Enable experimental AMD writes** is checked (`amd_write_experimental` in the config), and **Copy diagnostics** exports the PM table for community validation. The maintainer has no AMD hardware, so the path is unverified.
+- **HDMI/DP cards without DP-alt may be mislabeled**: those cards can omit DP-alt mode while drawing ~3–5W; use Ports Debug Mode on the About page to inspect raw role/watts.
+- **Platform-specific**: only Intel Core Ultra Series 1 (Meteor Lake) Framework laptops are tested; AMD RyzenSMU support is experimental.
+- **Per-fan curves need multi-fan verification**: per-fan curves (multi-fan machines, Unified off) are covered by unit tests with a mocked EC only — no multi-fan hardware (Framework 16 / Desktop) was available to verify on-device behavior. Single-fan machines take the exact pre-existing code path.
+- **EC driver**: the Framework EC kernel driver must be installed for `framework_lib` to communicate with the hardware.
 - **Crash leaves last-applied state**: orderly quit restores firmware fan control and flushes the charge limit, but a crash or kill bypasses that path, so the EC keeps the last written fan duty until sleep, reboot, or the next launch re-asserts it.
 - **Logoff/restart fan handover is not reliable**: on some Windows 11 elevated setups the session-end broadcast is not delivered to the tray window, so manual/curve duty can persist after sign-out until the next launch or reboot. Use **Restore Auto & Exit** before logging off when the fan is under manual/curve control.
 
-## Third-Party Dependencies
-
-- [`framework_lib`](https://github.com/FrameworkComputer/framework-system) — Framework EC hardware abstraction layer (from [framework-system](https://github.com/FrameworkComputer/framework-system))
-- [`iced`](https://crates.io/crates/iced) — Cross-platform GUI framework for Rust
-- [`PawnIO`](https://github.com/namazso/PawnIO) — Kernel-level hardware access driver (GPL-2.0), installed via `winget install namazso.PawnIO`
-- [`PawnIO Modules`](https://github.com/namazso/PawnIO.Modules) — Pre-compiled module blobs for MSR and MMIO access (LGPL-2.1)
+<details>
+<summary><strong>CPU Power module details (PawnIO)</strong></summary>
 
 ## CPU Power Feature (PawnIO Modules)
 
-The CPU Power section is **Intel-only** (CPUID vendor `GenuineIntel`). On AMD or other CPUs the card shows Not Supported and no PawnIO / MSR access is attempted.
+The CPU Power section supports **Intel** (PL1/PL2 via MSR 0x610) and **AMD** (STAPM/PPT Fast/PPT Slow/Tctl via RyzenSMU). Other vendors show Not Supported. Intel uses the IntelMSR/IntelMCHBAR modules; AMD uses `RyzenSMU.bin`. The AMD write path is experimental and requires the explicit `amd_write_experimental` opt-in; AMD read-only telemetry and the PM-table diagnostics are always available once the module is installed.
 
-The section reads and optionally writes PL1/PL2 via official PawnIO Modules. Those blobs are **not** in this repository and are **not** embedded in the EXE.
+The official PawnIO Modules are **not** in this repository and are **not** embedded in the EXE.
 
 1. Install the PawnIO driver: `winget install namazso.PawnIO` (or use **Install PawnIO** in the app).
 2. Open **CPU Power** and click **Download Modules**.
-3. The app fetches `IntelMSR.bin`, `IntelMCHBAR.bin`, and `RyzenSMU.bin` from [PawnIO Modules Releases](https://github.com/namazso/PawnIO.Modules/releases) (latest, falling back to 0.2.11 when the GitHub API is unreachable), checks SHA-256 (enforced) and caches them in `%APPDATA%/framework-crate/modules/`. Intel uses the first two; AMD read-only telemetry uses `RyzenSMU.bin`.
+3. The app fetches `IntelMSR.bin`, `IntelMCHBAR.bin`, and `RyzenSMU.bin` from [PawnIO Modules Releases](https://github.com/namazso/PawnIO.Modules/releases) (latest, falling back to 0.2.11 when the GitHub API is unreachable), checks SHA-256 (enforced) and caches them in `%APPDATA%/framework-crate/modules/`. Intel uses the first two; AMD telemetry and experimental writes use `RyzenSMU.bin`.
 
 A missing file blocks CPU Power; a hash mismatch also blocks use — update the app for the new release, or set `FRAMEWORK_ALLOW_UNKNOWN_MODULE_HASH=1` only after manual verification. Failed download shows manual instructions: download latest `release_*.zip` from the releases page and place `IntelMSR.bin` + `IntelMCHBAR.bin` (Intel) or `RyzenSMU.bin` (AMD) into `%APPDATA%/framework-crate/modules/`. Use **Open Modules Folder** and **Redetect** in the UI to verify — no restart needed.
 
@@ -361,11 +368,53 @@ The official `IntelMCHBAR.bin` exports only read ioctls (`ioctl_read_qword`). `A
 
 PawnIO Modules are LGPL-2.1. This project does not ship the blobs. Source: https://github.com/namazso/PawnIO.Modules (latest, currently 0.2.11)
 
-## Icon Attribution
+</details>
 
-The application icon is the "settings" icon (System category) from the [Iconoir](https://iconoir.com/) icon set, licensed under the [MIT License](https://github.com/iconoir-icons/iconoir/blob/master/LICENSE).
+## Third-Party Dependencies
 
-Rendering parameters: optical size 32, stroke weight 1.5, color `#7300ff` (R 115, G 0, B 255). The source SVG (`assets/settings.svg`) is reproduced with attribution to Iconoir.
+- [`framework_lib`](https://github.com/FrameworkComputer/framework-system) — Framework EC hardware abstraction layer (from [framework-system](https://github.com/FrameworkComputer/framework-system))
+- [`iced`](https://crates.io/crates/iced) — Cross-platform GUI framework for Rust
+- [`PawnIO`](https://github.com/namazso/PawnIO) — Kernel-level hardware access driver (GPL-2.0), installed via `winget install namazso.PawnIO`
+- [`PawnIO Modules`](https://github.com/namazso/PawnIO.Modules) — Pre-compiled module blobs for MSR/MMIO and RyzenSMU access (LGPL-2.1)
+
+
+
+<details>
+<summary><strong>Build, tests & development</strong></summary>
+
+## Build
+
+```bash
+cargo build --release
+```
+
+## Binary Size Checks
+
+```powershell
+# Debug build (larger because it keeps unoptimized code and full debug symbols)
+cargo build
+Get-Item .\target\debug\framework-crate.exe | Select-Object Name,Length
+
+# Release build (smaller and suitable for distribution)
+cargo build --release
+Get-Item .\target\release\framework-crate.exe | Select-Object Name,Length
+
+# Compare debug and release builds in one command
+cargo build; Get-Item .\target\debug\framework-crate.exe | Select-Object Name,Length; Get-Item .\target\release\framework-crate.exe | Select-Object Name,Length
+```
+
+Notes:
+
+- `debug` builds are intentionally larger because they keep full debug symbols and unoptimized code.
+- Use `release` artifacts for packaging and distribution.
+- If shipping a bundle, do not include the entire `target/` folder or `.pdb` files unless you need them for debugging.
+
+## Run
+
+```bash
+# Must run as administrator
+cargo run --release
+```
 
 ## Development
 
@@ -384,6 +433,16 @@ EC_SOAK_ITERS=20000 cargo test --locked --release ec_serial
 ```
 
 CI runs fmt, debug build, tests, clippy, `cargo audit`, and the release build on every push; a weekly soak workflow runs the dispatcher stress test.
+
+</details>
+
+## Icon Attribution
+
+The application icon is the "settings" icon (System category) from the [Iconoir](https://iconoir.com/) icon set, licensed under the [MIT License](https://github.com/iconoir-icons/iconoir/blob/master/LICENSE).
+
+Rendering parameters: optical size 32, stroke weight 1.5, color `#7300ff` (R 115, G 0, B 255). The source SVG (`assets/settings.svg`) is reproduced with attribution to Iconoir.
+
+
 
 ## License
 

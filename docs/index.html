@@ -79,6 +79,7 @@
 <figure class="shot"><img src="https://raw.githubusercontent.com/vinctw22/Framework-Crate/master/images/Framework-Crate-v0.9.5-2.png" alt="Fan control settings with hysteresis, rate limit, sensor selection, and calibration"><figcaption>Fan control — curve editor, hysteresis, rate limit, sensors, and RPM calibration.</figcaption></figure>
 <figure class="shot"><img src="https://raw.githubusercontent.com/vinctw22/Framework-Crate/master/images/Framework-Crate-v0.9.5-8.png" alt="Manual fan mode with duty slider and sensor settings"><figcaption>Fan modes — firmware auto, manual duty, and sensor/chart-window settings.</figcaption></figure>
 <figure class="shot"><img src="https://raw.githubusercontent.com/vinctw22/Framework-Crate/master/images/Framework-Crate-v0.9.5-3.png" alt="CPU power settings with PL1/PL2 controls and MSR readout"><figcaption>CPU power — PL1/PL2 limits, turbo readout, and MSR/MMIO diagnostics.</figcaption></figure>
+<figure class="shot"><img src="https://raw.githubusercontent.com/vinctw22/Framework-Crate/master/images/Framework-Crate-Ryzen-CPU-Power-experimental.png" alt="AMD Ryzen CPU power preview with STAPM, PPT Fast, PPT Slow, and Tctl"><figcaption>AMD CPU power (preview) — RyzenSMU STAPM/PPT/Tctl with experimental AC/Battery profiles.</figcaption></figure>
 <figure class="shot"><img src="https://raw.githubusercontent.com/vinctw22/Framework-Crate/master/images/Framework-Crate-v0.9.5-7.png" alt="Battery details with health, capacity, cells, and pack temperature"><figcaption>Battery — charge limit, health, capacity, and smart-battery details.</figcaption></figure>
 <figure class="shot"><img src="https://raw.githubusercontent.com/vinctw22/Framework-Crate/master/images/Framework-Crate-v0.9.5-4.png" alt="Privacy switches, keyboard backlight, fingerprint LED, and port labels"><figcaption>Privacy and ports — camera/mic switches, backlight, fingerprint LED, and PD port labels.</figcaption></figure>
 <figure class="shot"><img src="https://raw.githubusercontent.com/vinctw22/Framework-Crate/master/images/Framework-Crate-v0.9.5-5.png" alt="About page with themes, updates, and CPU power keep-alive"><figcaption>About — firmware versions, themes, updates, and the CPU power keep-alive toggle.</figcaption></figure>
@@ -88,11 +89,11 @@
 <h2>Key features</h2>
 <ul class="tight">
 <li><strong>Curve editor</strong> — draggable points, hysteresis, per-fan curves, RPM calibration.</li>
-<li><strong>CPU power</strong> — PL1/PL2 read/write, turbo readout, factory reset, separate AC/Battery profiles whose defaults are captured from the MMIO mirror, with optional keep-alive after sleep and AC changes.</li>
+<li><strong>CPU power</strong> — Intel PL1/PL2 read/write, turbo readout, factory reset, and AC/Battery profiles with optional keep-alive after sleep and AC changes. AMD RyzenSMU support shows STAPM/PPT/Tctl and adds the same profiles behind an experimental opt-in.</li>
 <li><strong>Battery care</strong> — charge limit, health, smart-battery details.</li>
 <li><strong>Telemetry</strong> — temperature chart, sensor readouts, privacy switches, port labels.</li>
 </ul>
-<p class="muted">Tested on Framework Laptop with Intel Core Ultra Series 1; Windows 10/11 and administrator rights required. No accounts, no telemetry.</p>
+<p class="muted">Tested on Framework Laptop with Intel Core Ultra Series 1; AMD RyzenSMU support is experimental. Windows 10/11 and administrator rights required. No accounts, no telemetry.</p>
 
 <footer>
 <p>Framework Crate by Vincent Chang · MIT License · © <span id="year">2026</span> · <a href="privacy.html">Privacy</a> · <a href="license.html">License</a> · <a href="security.html">Security</a> · <a href="limitations.html">Limitations</a> · <a href="https://github.com/vinctw22/Framework-Crate">GitHub</a></p>
