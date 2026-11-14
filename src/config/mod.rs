@@ -18,7 +18,7 @@ pub use strict::{ImportedSettings, export_to_path, import_file};
 #[cfg(test)]
 pub use strict::{chassis_size, import_strict, local_product_name};
 
-pub(crate) use acl::{harden_file_acl, warn_if_world_writable};
+pub(crate) use acl::{file_has_world_write_ace, harden_file_acl, warn_if_world_writable};
 pub(crate) use io::atomic_replace;
 #[cfg(test)]
 pub(crate) use paths::CONFIG_DIR_TEST_LOCK;

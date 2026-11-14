@@ -10,6 +10,7 @@
 //! `crate::system_info::*` path referenced anywhere was broken by the split.
 //! (`decode_console_bytes`/`build_startup_task` were already `pub(crate)`.)
 
+mod handover_task;
 mod startup_task;
 mod system;
 mod window;
@@ -31,6 +32,7 @@ pub(crate) fn to_wide_path(path: &std::path::Path) -> Vec<u16> {
         .collect()
 }
 
+pub use handover_task::sync_handover_task;
 pub use startup_task::{SingleInstanceGuard, set_startup_launch, startup_launch_enabled};
 pub use system::{
     cpu_name, display_refresh_rate, display_resolution, is_amd_cpu, is_intel_cpu, os_version,

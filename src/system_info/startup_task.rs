@@ -112,7 +112,7 @@ pub(crate) fn decode_console_bytes(bytes: &[u8]) -> String {
 /// freeze the UI thread (toggle handler) or delay startup.
 /// The task action is registered through `/XML`, so no argument value has to
 /// survive schtasks' own command-line re-parsing.
-fn schtasks_output(args: &[&str]) -> Result<std::process::Output, String> {
+pub(super) fn schtasks_output(args: &[&str]) -> Result<std::process::Output, String> {
     use std::process::Stdio;
     // Own the arguments so nothing borrows the caller across the wait below.
     let args: Vec<String> = args.iter().map(|s| s.to_string()).collect();
@@ -192,8 +192,8 @@ fn schtasks_output(args: &[&str]) -> Result<std::process::Output, String> {
     }
 }
 
-/// Escapes text for inclusion in the startup task XML.
-fn xml_escape(s: &str) -> String {
+/// Escapes text for inclusion in task XML.
+pub(super) fn xml_escape(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     for c in s.chars() {
         match c {
@@ -835,7 +835,7 @@ fn create_task_file(path: &std::path::Path, bytes: &[u8]) -> std::io::Result<()>
 }
 
 /// Writes the task document to a uniquely-named temp file.
-fn write_task_xml(xml: &str) -> Result<String, String> {
+pub(super) fn write_task_xml(xml: &str) -> Result<String, String> {
     let dir = task_dir().map_err(|e| format!("cannot resolve startup task directory: {e}"))?;
     for _ in 0..5 {
         // Unpredictable suffix: timestamp-nanos + pid + counter hashed, so a
@@ -900,7 +900,7 @@ fn cleanup_task_xml_in(dir: &std::path::Path) {
     }
 }
 
-fn cleanup_stale_task_xml() {
+pub(super) fn cleanup_stale_task_xml() {
     let temp = std::env::temp_dir();
     cleanup_task_xml_in(&temp);
     if let Ok(dir) = task_dir()
@@ -915,26 +915,8 @@ fn cleanup_stale_task_xml() {
 /// Rejects characters that would break the task XML or allow injection. The
 /// path is embedded as XML text and wrapped in quotes for the action Command,
 /// so quotes, cmd metacharacters and control characters are all refused here.
-fn validate_task_command_path(exe: &str) -> Result<(), String> {
-    const FORBIDDEN: &[char] = &[
-        '"', '\'', '&', '|', ';', '%', '^', '`', '$', '(', ')', '<', '>', '*', '?', '{', '}', '!',
-        '\n', '\r',
-    ];
-    if exe.contains(FORBIDDEN) {
-        return Err("exe path contains invalid characters".to_string());
-    }
-    // Block non-ASCII control/bidi override that could hide injection.
-    if exe
-        .chars()
-        .any(|c| c.is_control() || c == '\u{202E}' || c == '\u{202D}')
-    {
-        return Err("exe path contains invalid unicode".to_string());
-    }
-    // A trailing backslash would escape the closing quote of the action
-    // Command (e.g. "C:\path\" → the \" becomes an escaped quote).
-    if exe.ends_with('\\') {
-        return Err("exe path must not end with backslash".to_string());
-    }
+pub(super) fn validate_task_command_path(exe: &str) -> Result<(), String> {
+    validate_path_basics(exe, "exe path")?;
     // HighestAvailable runs elevated at logon: an exe in a user-writable
     // dir (Downloads/Desktop/Temp) can be replaced to gain elevation. Warn
     // so portable runs stay a conscious choice.
@@ -953,6 +935,35 @@ fn validate_task_command_path(exe: &str) -> Result<(), String> {
             );
             break;
         }
+    }
+    Ok(())
+}
+
+/// Validates a path embedded in a task XML element and wrapped in quotes on
+/// the action command line (exe path, config path). Same rules as the exe
+/// path: the value is never re-quoted safely.
+pub(super) fn validate_task_arg_path(path: &str, label: &str) -> Result<(), String> {
+    validate_path_basics(path, label)
+}
+
+fn validate_path_basics(s: &str, label: &str) -> Result<(), String> {
+    const FORBIDDEN: &[char] = &[
+        '"', '\'', '&', '|', ';', '%', '^', '`', '$', '(', ')', '<', '>', '*', '?', '{', '}', '!',
+        '\n', '\r',
+    ];
+    if s.contains(FORBIDDEN) {
+        return Err(format!("{label} contains invalid characters"));
+    }
+    // Block non-ASCII control/bidi override that could hide injection.
+    if s.chars()
+        .any(|c| c.is_control() || c == '\u{202E}' || c == '\u{202D}')
+    {
+        return Err(format!("{label} contains invalid unicode"));
+    }
+    // A trailing backslash would escape the closing quote of the action
+    // Command (e.g. "C:\path\" → the \" becomes an escaped quote).
+    if s.ends_with('\\') {
+        return Err(format!("{label} must not end with backslash"));
     }
     Ok(())
 }

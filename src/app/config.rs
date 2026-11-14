@@ -76,6 +76,20 @@ impl App {
                 });
                 self.update_curve_full_points();
                 self.save_config();
+                // Manual/curve pin the fan, so the sign-out handover task
+                // must exist; disabled mode removes it. Off the UI thread
+                // (schtasks is slow); failures are only logged. The sync
+                // re-reads the mode under its lock, so a burst of mode
+                // changes cannot apply an older choice after a newer one.
+                #[cfg(not(test))]
+                {
+                    let mode = self.state.fan.mode.clone();
+                    std::thread::spawn(move || {
+                        if let Err(e) = crate::system_info::sync_handover_task(&mode) {
+                            warn!("handover task sync failed: {e}");
+                        }
+                    });
+                }
                 Some(Task::none())
             }
             Message::FanDutyChanged(duty) => {

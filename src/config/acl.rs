@@ -17,7 +17,7 @@ const WORLD_WRITE_MASK: u32 = {
 /// Checks the file DACL for an allow-ACE granting write-like rights to a
 /// broad SID (Everyone, Users, Authenticated Users). Returns false on any
 /// query failure (fail-open: inspection errors must not block saves).
-fn file_has_world_write_ace(path: &std::path::Path) -> bool {
+pub(crate) fn file_has_world_write_ace(path: &std::path::Path) -> bool {
     use std::os::windows::ffi::OsStrExt;
     use windows_sys::Win32::Foundation::LocalFree;
     use windows_sys::Win32::Security::Authorization::{GetNamedSecurityInfoW, SE_FILE_OBJECT};

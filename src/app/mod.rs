@@ -728,6 +728,26 @@ impl App {
         #[cfg(test)]
         let _ = bg_state;
 
+        // Reconcile the sign-out handover task with the persisted fan mode.
+        // Off the UI thread: schtasks is slow and must not block startup.
+        // Failures are only logged; the in-session session-end hook still
+        // covers graceful exits. The mode atom is re-read under the sync
+        // lock, so a mode change racing startup cannot be applied reversed.
+        #[cfg(not(test))]
+        {
+            let mode = app.state.fan.mode.clone();
+            std::thread::spawn(move || {
+                if let Err(e) = system_info::sync_handover_task(&mode) {
+                    warn!("handover task sync failed: {e}");
+                }
+            });
+        }
+
+        // Tests never start the task sync; keep the function referenced so
+        // --all-targets -D warnings does not flag the handover task chain.
+        #[cfg(test)]
+        let _ = system_info::sync_handover_task;
+
         let startup_query = Task::perform(
             async {
                 crate::util::spawn_blocking_with_timeout(
