@@ -14,6 +14,7 @@ mod curve_canvas;
 mod ec_serial;
 mod fan_control;
 mod file_dialog;
+mod handover;
 mod probe;
 mod style;
 mod sub_state;
@@ -427,7 +428,15 @@ fn app_style(app: &App, theme: &iced::Theme) -> iced::theme::Style {
 }
 
 fn main() {
-    let minimized = std::env::args().any(|a| a == "--minimized");
+    let args: Vec<String> = std::env::args().collect();
+    // Headless sign-out handover launched by the FrameworkCrateHandover
+    // task as SYSTEM. Runs before the single-instance mutex (the app may be
+    // running in another session) and before any UI/tracing setup.
+    if args.iter().any(|a| a == "--handover") {
+        fallback_log("handover: invoked");
+        std::process::exit(handover::run(&args[1..]));
+    }
+    let minimized = args.iter().any(|a| a == "--minimized");
     // Log the launch itself: this is the first thing a user checks when a
     // Task Scheduler start seems to have done nothing.
     fallback_log(&format!(
