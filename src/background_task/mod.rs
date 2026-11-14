@@ -172,9 +172,11 @@ pub fn spawn(state: AppState) {
     const OUTER_FAILURE_WINDOW_MS: u64 = 3_600_000;
     let hook_state = state.clone();
     crate::tray::set_session_end_hook(move || {
+        tracing::info!("session-end hook fired: returning fan to firmware control");
         hook_state.lifecycle.shutdown.store(true, Ordering::Release);
         let ec_opt = { read_lock(&hook_state.system.ec_client) };
         let Some(ec) = ec_opt.as_ref().as_ref() else {
+            tracing::warn!("session-end hook: no EC client, fan stays as-is");
             return;
         };
         let limit = read_lock(&hook_state.lifecycle.config)
