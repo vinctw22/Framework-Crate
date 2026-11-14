@@ -7,18 +7,15 @@ use crate::system_info;
 
 use crate::system_info::{PBT_APMRESUMEAUTOMATIC, PBT_APMRESUMESUSPEND, WM_POWERBROADCAST};
 use windows_sys::Win32::Foundation::POINT;
-use windows_sys::Win32::System::Console::{
-    AllocConsole, CTRL_LOGOFF_EVENT, CTRL_SHUTDOWN_EVENT, GetConsoleWindow, SetConsoleCtrlHandler,
-};
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows_sys::Win32::System::RemoteDesktop::{
     NOTIFY_FOR_THIS_SESSION, WTSRegisterSessionNotification, WTSUnRegisterSessionNotification,
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DefWindowProcW, DestroyIcon, DestroyWindow, DispatchMessageW, GetCursorPos,
-    GetMessageW, MSG, PostMessageW, PostThreadMessageW, RegisterClassW, SW_HIDE,
-    SetForegroundWindow, ShowWindow, TranslateMessage, UnregisterClassW, WM_WTSSESSION_CHANGE,
-    WNDCLASSW, WTS_SESSION_LOGOFF,
+    GetMessageW, MSG, PostMessageW, PostThreadMessageW, RegisterClassW, SetForegroundWindow,
+    ShowWindow, TranslateMessage, UnregisterClassW, WM_WTSSESSION_CHANGE, WNDCLASSW,
+    WTS_SESSION_LOGOFF,
 };
 
 const WM_APP: u32 = 0x8000;
@@ -40,8 +37,7 @@ static SESSION_HANDOVER_DONE: AtomicBool = AtomicBool::new(false);
 /// - `WM_WTSSESSION_CHANGE` / `WTS_SESSION_LOGOFF` is posted by the session
 ///   subsystem, but on elevated sign-out winlogon can terminate the process
 ///   before it is dispatched, so it is a best-effort supplement. The reliable
-///   elevated path is the SYSTEM handover task (`system_info::handover_task`);
-///   a hidden-console `CTRL_LOGOFF_EVENT` handler is a second supplement.
+///   elevated path is the SYSTEM handover task (`system_info::handover_task`).
 ///
 /// `WM_WTSSESSION_CHANGE` also fires for logon/lock/disconnect; only the
 /// logoff code means teardown.
@@ -50,51 +46,6 @@ fn is_session_end_message(msg: u32, wparam: usize) -> bool {
         || (msg == WM_WTSSESSION_CHANGE && wparam as u32 == WTS_SESSION_LOGOFF)
 }
 
-/// Console ctrl handler: winlogon sends `CTRL_LOGOFF_EVENT` (sign-out) and
-/// `CTRL_SHUTDOWN_EVENT` through the console driver before terminating the
-/// session's processes. Console alerts bypass the USER32 message queue, so
-/// UIPI integrity filtering does not apply and elevated installs receive
-/// them even when a non-elevated shell starts the sign-out.
-unsafe extern "system" fn console_ctrl_handler(ctrl_type: u32) -> i32 {
-    if (ctrl_type == CTRL_LOGOFF_EVENT || ctrl_type == CTRL_SHUTDOWN_EVENT)
-        && SESSION_HANDOVER_DONE
-            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
-            .is_ok()
-    {
-        super::run_session_end_hook();
-    }
-    // FALSE: after the synchronous handover returns, let the default
-    // handler terminate the process like any console app.
-    0
-}
-
-/// Allocates a hidden console and registers `console_ctrl_handler` as a
-/// best-effort sign-out channel: console alerts bypass the USER32 queue, so
-/// UIPI does not filter them. Whether winlogon always delivers the event to
-/// an elevated GUI app is unverified; the SYSTEM handover task remains the
-/// reliable path. A console we allocate is hidden immediately (brief flash);
-/// an existing console (debugger/terminal) is left visible.
-fn install_console_logoff_channel() {
-    unsafe {
-        let allocated = GetConsoleWindow().is_null();
-        if allocated {
-            if AllocConsole() == 0 {
-                tracing::warn!(
-                    "AllocConsole failed ({}); elevated sign-out handover channel unavailable",
-                    std::io::Error::last_os_error()
-                );
-                return;
-            }
-            ShowWindow(GetConsoleWindow(), SW_HIDE);
-        }
-        if SetConsoleCtrlHandler(Some(console_ctrl_handler), 1) == 0 {
-            tracing::warn!(
-                "SetConsoleCtrlHandler failed ({})",
-                std::io::Error::last_os_error()
-            );
-        }
-    }
-}
 // Explorer restart notification is a registered message, not a fixed
 // constant. Must be queried via `RegisterWindowMessageW("TaskbarCreated")`.
 
@@ -381,22 +332,29 @@ fn message_pump_loop(
     });
     store_global_hwnd(tray_hwnd as isize);
 
-    // Second session-end delivery path: the classic WM_ENDSESSION broadcast
-    // is UIPI-filtered against elevated processes when a non-elevated shell
-    // starts sign-out, so register this window with the session subsystem,
-    // whose WM_WTSSESSION_CHANGE posts are not caller-IL filtered. Failure
-    // is non-fatal: non-elevated installs still get the classic broadcast.
-    if unsafe { WTSRegisterSessionNotification(tray_hwnd, NOTIFY_FOR_THIS_SESSION) } == 0 {
+    // Best-effort session-end delivery path: the classic WM_ENDSESSION
+    // broadcast is UIPI-filtered against elevated processes when a
+    // non-elevated shell starts sign-out, so register this window with the
+    // session subsystem. Failure is non-fatal: the SYSTEM handover task is
+    // the reliable path.
+    let mut wts_registered = false;
+    for attempt in 0..2 {
+        if unsafe { WTSRegisterSessionNotification(tray_hwnd, NOTIFY_FOR_THIS_SESSION) } != 0 {
+            wts_registered = true;
+            break;
+        }
+        if attempt == 0 {
+            // The session subsystem may still be settling right after a pump
+            // reinit; one retry is cheaper than losing notifications.
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
+    }
+    if !wts_registered {
         tracing::warn!(
-            "WTSRegisterSessionNotification failed ({}); elevated sign-out handover may rely on the classic broadcast only",
+            "WTSRegisterSessionNotification failed ({}); elevated sign-out handover relies on the SYSTEM task",
             std::io::Error::last_os_error()
         );
     }
-
-    // Primary elevated sign-out channel: console CTRL_LOGOFF_EVENT, which
-    // winlogon delivers through the console driver before killing the
-    // process and which UIPI cannot filter.
-    install_console_logoff_channel();
 
     let mut tray_icon_loaded = false;
     let mut hicon: Option<isize> = None;
