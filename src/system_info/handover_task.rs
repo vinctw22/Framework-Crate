@@ -2,10 +2,10 @@
 //!
 //! Empirically (2026-11-10/11 tests) an elevated app did not receive any
 //! in-session logoff notification before winlogon killed it. The tray pump now
-//! also registers WTS notifications and a hidden-console ctrl handler as
-//! best-effort supplements, but the reliable mechanism that runs *after* the
-//! session is gone is this Task Scheduler task registered as SYSTEM and
-//! triggered by the sign-out event itself.
+//! also registers WTS notifications as a best-effort supplement, but the
+//! reliable mechanism that runs *after* the session is gone is this Task
+//! Scheduler task registered as SYSTEM and triggered by the sign-out event
+//! itself.
 //!
 //! Trigger choice: the XML schema has no logoff value for
 //! `SessionStateChangeTrigger` (only connect/disconnect/lock/unlock strings;
@@ -282,27 +282,25 @@ fn delete_handover_task() -> Result<(), String> {
 /// (re-created every call so a moved exe path self-heals), disabled removes a
 /// stale one. The mode is read under the sync lock, so sync threads that
 /// acquire the lock out of order still apply the user's latest choice.
-/// Failures are returned for the caller to log; the in-session session-end
-/// hook still covers graceful exits.
+/// No-op when the process is not elevated: Task Scheduler denies SYSTEM-task
+/// creation/query/delete to a non-elevated caller. Failures are returned for
+/// the caller to log; the in-session session-end hook still covers graceful
+/// exits.
 pub fn sync_handover_task(mode: &AtomicU64) -> Result<(), String> {
     let _guard = match HANDOVER_SYNC_LOCK.lock() {
         Ok(g) => g,
         Err(p) => p.into_inner(),
     };
+    if !is_elevated() {
+        tracing::debug!("handover task sync skipped: process is not elevated");
+        return Ok(());
+    }
     if handover_desired(mode.load(Ordering::Acquire) as u8) {
         create_handover_task()
     } else if handover_task_enabled() {
         delete_handover_task()
-    } else if is_elevated() {
-        Ok(())
     } else {
-        // Task Scheduler denies reading a SYSTEM task to a non-elevated
-        // caller, so the failed query above is not evidence that no task
-        // exists. Report instead of silently leaving a stale task behind.
-        Err(
-            "cannot verify or remove the SYSTEM handover task without administrator privileges"
-                .to_string(),
-        )
+        Ok(())
     }
 }
 

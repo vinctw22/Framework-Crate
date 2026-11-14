@@ -56,6 +56,7 @@ Download the `.exe`, then run it as administrator. PawnIO is optional and only n
 - **Settings Backup** — Export settings to a file (native save dialog, machine-stamped) and import them back; strict validation rejects unknown fields and version mismatches, and a different chassis size is refused outright
 - **System Tray** — Minimize to tray, tray icon with context menu (Show / Quit) and hover tooltip with the current temperature, icon restored automatically if Explorer restarts
 - **Launch at Startup** — Registers a per-user logon task so the tray app comes back after a reboot. The task document is generated in-process and handed to `schtasks /Create /XML`; the settings that matter (unlimited execution limit, battery conditions cleared, restart on failure) are asserted by tests without needing elevation
+- **Sign-out Fan Handover** — In manual or curve mode, registers a SYSTEM task (`FrameworkCrateHandover`) that runs at sign-out, returns the fan to firmware control, and re-applies the configured charge limit; results are appended to `%ProgramData%/framework-crate/handover.log`. The task is only registered when the app runs from Program Files (a SYSTEM task must never execute a user-replaceable exe); switching the fan mode to Disabled removes it
 - **File Logging** — Warnings and errors are written to `%APPDATA%/framework-crate/app.log` with size-based rotation, because a logon-launched process has no console to print them to
 
 ## Requirements
@@ -307,6 +308,14 @@ Notes:
 - The task document is written as UTF-16LE to the admin-only `%ProgramData%\FrameworkCrate\tasks` directory under an unpredictable hashed name, then removed. Debug/unelevated test runs use `%TEMP%`. A process killed mid-write never reaches the removal, so stale documents are cleaned up on the next run.
 - The executable path is validated before it is embedded: quotes, cmd metacharacters, control characters, bidi overrides, `DEL` and a trailing backslash are all rejected, since the path is embedded as XML text and wrapped in quotes for the action `Command`.
 
+## Sign-out Fan Handover
+
+Manual and curve modes pin the fan, and an elevated app does not reliably receive in-session logoff notifications, so the fan could stay pinned after sign-out. To prevent that, the app registers `FrameworkCrateHandover`, a SYSTEM scheduled task triggered by the TerminalServices LocalSessionManager event 23 (session logoff succeeded) with a 30 s delay. It runs `framework-crate.exe --handover --config <path>`, reconnects the EC, returns the fan to firmware, re-applies the configured charge limit, and appends the result to `%ProgramData%/framework-crate/handover.log`.
+
+- The task is refreshed on startup and on every fan-mode change, so a moved installation self-heals; switching the mode to **Disabled** removes it.
+- It is only registered when the executable resolves under Program Files. A SYSTEM task must not execute a binary a standard user can replace; if the app runs from a portable folder the task is skipped and the reason is written to `app.log`. Development builds can set `FRAMEWORK_CONTROL_ALLOW_UNPROTECTED_HANDOVER=1` to bypass the check.
+- The handover skips itself when any user session is active again, so a fast re-login is not clobbered.
+
 ## Logs
 
 `tracing` output is written to `%APPDATA%/framework-crate/app.log` instead of only stderr, because a logon-launched process has no console — with stderr-only logging every warning and error from an auto-started run was discarded.
@@ -321,6 +330,7 @@ The file rotates once it grows past a size threshold, keeping `app.log.1` throug
 | `FRAMEWORK_CONTROL_CONFIG_DIR` | Overrides the config directory in debug/test builds. Must be absolute, with no `..` and no `\\?\` / `\\.\` prefix. Release builds ignore it |
 | `FRAMEWORK_ALLOW_UNKNOWN_MODULE_HASH=1` | Loads PawnIO module blobs whose hash is not pinned. Only after manual verification of a newer upstream release. Debug builds only; release builds always fail closed |
 | `FRAMEWORK_ALLOW_UNSIGNED_PAWNIO=1` | Loads the PawnIO DLL despite an Authenticode failure. For self-signed test DLLs. Debug builds only; release builds always fail closed |
+| `FRAMEWORK_CONTROL_ALLOW_UNPROTECTED_HANDOVER=1` | Registers the SYSTEM sign-out handover task from a location outside Program Files. Development only: any user who can write the exe could then run code as SYSTEM |
 
 </details>
 
@@ -341,7 +351,7 @@ The file rotates once it grows past a size threshold, keeping `app.log.1` throug
 - **Per-fan curves need multi-fan verification**: per-fan curves (multi-fan machines, Unified off) are covered by unit tests with a mocked EC only — no multi-fan hardware (Framework 16 / Desktop) was available to verify on-device behavior. Single-fan machines take the exact pre-existing code path.
 - **EC driver**: the Framework EC kernel driver must be installed for `framework_lib` to communicate with the hardware.
 - **Crash leaves last-applied state**: orderly quit restores firmware fan control and flushes the charge limit, but a crash or kill bypasses that path, so the EC keeps the last written fan duty until sleep, reboot, or the next launch re-asserts it.
-- **Logoff/restart fan handover is not reliable**: on some Windows 11 elevated setups the session-end broadcast is not delivered to the tray window, so manual/curve duty can persist after sign-out until the next launch or reboot. Use **Restore Auto & Exit** before logging off when the fan is under manual/curve control.
+- **Logoff fan handover depends on a SYSTEM task**: manual/curve modes register `FrameworkCrateHandover`, which runs 30 s after sign-out and returns the fan to firmware. The app must run from Program Files to register it (a SYSTEM task must not execute a user-replaceable binary); when it cannot, the reason is written to `app.log` and the fan may stay pinned until the next launch — use **Restore Auto & Exit** in that case. In-session logoff notifications alone are still not reliable on elevated setups.
 
 <details>
 <summary><strong>CPU Power module details (PawnIO)</strong></summary>

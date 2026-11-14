@@ -3,8 +3,8 @@
 //! Runs as SYSTEM ~30 s after sign-out (see `system_info::handover_task`).
 //! No UI, no single-instance mutex, no tracing: reconnect the EC, hand the
 //! fan back to firmware, re-apply the configured charge limit, and append a
-//! trace to `handover.log` next to the config so the run is verifiable after
-//! the next sign-in.
+//! trace to `%ProgramData%\framework-crate\handover.log` so the run is
+//! verifiable after the next sign-in.
 
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -24,9 +24,16 @@ fn parse_config_arg(args: &[String]) -> Option<PathBuf> {
         .map(PathBuf::from)
 }
 
-/// `handover.log` lives next to the config: the user's config dir is the
-/// one place both the app (post sign-in) and SYSTEM can read it.
+/// `handover.log` lives under ProgramData: the handover runs as SYSTEM and
+/// must not write into a user-writable profile directory. Users keep read
+/// access through ProgramData's inherited ACL, so the trace stays verifiable.
 fn log_path_for(config_path: Option<&Path>) -> PathBuf {
+    if let Some(base) = std::env::var_os("ProgramData") {
+        return PathBuf::from(base)
+            .join("framework-crate")
+            .join("handover.log");
+    }
+    // Unusual environments without ProgramData: fall back to the config dir.
     let dir = config_path
         .and_then(|p| p.parent())
         .map(Path::to_path_buf)
@@ -54,46 +61,35 @@ fn log_line(path: &Path, line: &str) {
     }
 }
 
-/// Whether a user is actively logged in on the physical console.
+/// Whether any user session is active, i.e. someone is logged on and the
+/// running app owns fan control.
 ///
 /// Guards the quick re-login race: sign-out writes the trigger event, the
-/// task fires 30 s later, and if the user already signed back in the running
+/// task fires 30 s later, and if a user already signed back in the running
 /// app owns the fan and must not be clobbered (manual mode only re-asserts
-/// its duty periodically, so a stray `autofanctrl` could stick). Fail-open:
-/// any query problem proceeds with the handover, because leaving the fan
-/// pinned is the worse outcome.
-fn console_session_active() -> bool {
+/// its duty periodically, so a stray `autofanctrl` could stick). Checking
+/// every session (not just the console session) covers RDP and fast user
+/// switching. Fail-open: any query problem proceeds with the handover,
+/// because leaving the fan pinned is the worse outcome.
+fn user_session_active() -> bool {
     use windows_sys::Win32::System::RemoteDesktop::{
-        WTS_CURRENT_SERVER_HANDLE, WTSConnectState, WTSFreeMemory, WTSGetActiveConsoleSessionId,
-        WTSQuerySessionInformationW,
+        WTS_CURRENT_SERVER_HANDLE, WTS_SESSION_INFOW, WTSActive, WTSEnumerateSessionsW,
+        WTSFreeMemory,
     };
-    // WTS_CONNECTSTATE_CLASS::WTSActive
-    const WTS_ACTIVE: i32 = 0;
-    const NO_SESSION: u32 = 0xFFFF_FFFF;
-    // SAFETY: no-arg WTS call.
-    let session = unsafe { WTSGetActiveConsoleSessionId() };
-    if session == NO_SESSION {
+    let mut info: *mut WTS_SESSION_INFOW = std::ptr::null_mut();
+    let mut count: u32 = 0;
+    // SAFETY: null server handle means local; the array is freed below.
+    let ok =
+        unsafe { WTSEnumerateSessionsW(WTS_CURRENT_SERVER_HANDLE, 0, 1, &mut info, &mut count) };
+    if ok == 0 || info.is_null() {
         return false;
     }
-    let mut buffer: *mut u16 = std::ptr::null_mut();
-    let mut returned: u32 = 0;
-    // SAFETY: null server handle means local; the returned buffer is freed below.
-    let ok = unsafe {
-        WTSQuerySessionInformationW(
-            WTS_CURRENT_SERVER_HANDLE,
-            session,
-            WTSConnectState,
-            &mut buffer,
-            &mut returned,
-        )
-    };
-    if ok == 0 || buffer.is_null() {
-        return false;
-    }
-    // WTSConnectState returns a WTS_CONNECTSTATE_CLASS value.
-    let active = returned >= 4 && (unsafe { *(buffer as *const i32) }) == WTS_ACTIVE;
-    // SAFETY: buffer was allocated by WTSQuerySessionInformationW.
-    unsafe { WTSFreeMemory(buffer as *mut core::ffi::c_void) };
+    // SAFETY: the API returned `count` initialized entries at `info`.
+    let active = unsafe { std::slice::from_raw_parts(info, count as usize) }
+        .iter()
+        .any(|session| session.State == WTSActive);
+    // SAFETY: array allocated by WTSEnumerateSessionsW.
+    unsafe { WTSFreeMemory(info as *mut core::ffi::c_void) };
     active
 }
 
@@ -112,10 +108,10 @@ pub fn run(args: &[String]) -> i32 {
             config_path,
         ),
     );
-    if console_session_active() {
+    if user_session_active() {
         log_line(
             &log,
-            "handover: console session is active (user signed back in); skipping",
+            "handover: a user session is active (user signed back in); skipping",
         );
         return OK;
     }
@@ -140,6 +136,15 @@ pub fn run(args: &[String]) -> i32 {
             return EC_UNAVAILABLE;
         }
     };
+    // EC init can take long enough for a user to sign back in; re-check
+    // before writing so the running app's fan control is not clobbered.
+    if user_session_active() {
+        log_line(
+            &log,
+            "handover: a user session became active before EC writes; skipping",
+        );
+        return OK;
+    }
     let mut rc = OK;
     match ec.autofanctrl() {
         Ok(()) => log_line(&log, "handover: autofanctrl ok (fan back to firmware)"),
@@ -147,6 +152,20 @@ pub fn run(args: &[String]) -> i32 {
             log_line(&log, &format!("handover: autofanctrl failed: {e}"));
             rc = EC_PARTIAL;
         }
+    }
+    // Read the fans back so the log shows what the EC reports after the
+    // switch, not just that the command returned success.
+    match ec.thermal() {
+        Ok(data) if !data.fans.is_empty() => {
+            let rpms: Vec<String> = data
+                .fans
+                .iter()
+                .map(|fan| format!("{}={}rpm", fan.name, fan.rpm))
+                .collect();
+            log_line(&log, &format!("handover: fan readback {}", rpms.join(", ")));
+        }
+        Ok(_) => log_line(&log, "handover: fan readback returned no fans"),
+        Err(e) => log_line(&log, &format!("handover: fan readback failed: {e}")),
     }
     if let Some(limit) = limit {
         let pct = if limit.enabled { limit.value } else { 100 };
@@ -192,9 +211,18 @@ mod tests {
     }
 
     #[test]
-    fn log_path_prefers_config_parent() {
+    fn log_path_uses_program_data() {
         let p = log_path_for(Some(Path::new("C:\\cfg\\framework-crate\\config.toml")));
-        assert_eq!(p, PathBuf::from("C:\\cfg\\framework-crate\\handover.log"));
+        if let Some(base) = std::env::var_os("ProgramData") {
+            assert_eq!(
+                p,
+                PathBuf::from(base)
+                    .join("framework-crate")
+                    .join("handover.log")
+            );
+        } else {
+            assert_eq!(p, PathBuf::from("C:\\cfg\\framework-crate\\handover.log"));
+        }
     }
 
     #[test]

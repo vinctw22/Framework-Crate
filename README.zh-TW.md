@@ -56,6 +56,7 @@
 - **設定備份** — 將設定匯出成檔案（原生存檔對話框、標記機型）並可匯入；嚴格驗證會拒絕未知欄位與版本不符，機箱尺寸不同會直接拒絕
 - **系統匣** — 可最小化到系統匣；圖示右鍵選單（Show／Quit）與目前溫度 hover tooltip；Explorer 重啟後會自動恢復圖示
 - **開機啟動** — 註冊每位使用者的登入排程工作，讓托盤程式在重新開機後回來。工作文件在程式內產生後交給 `schtasks /Create /XML`；重要設定（無執行時間限制、清除電池條件、失敗重啟）都有測試驗證，不需要提權
+- **登出風扇交接** — 手動或曲線模式下註冊 SYSTEM 工作（`FrameworkCrateHandover`），登出時將風扇交還韌體並重新套用充電上限，結果附加到 `%ProgramData%/framework-crate/handover.log`。只有程式位於 Program Files 時才會註冊（SYSTEM 工作不得執行使用者可替換的 exe）；切換到 Disabled 會移除工作
 - **檔案日誌** — 警告與錯誤寫入 `%APPDATA%/framework-crate/app.log`，並依大小輪替；因為登入啟動的程序沒有主控台可輸出
 
 ## 系統需求
@@ -304,6 +305,14 @@ selected_sensors = []
 - 工作文件以 UTF-16LE 寫到僅管理員可寫的 `%ProgramData%\FrameworkCrate\tasks`，檔名為不可預測雜湊，之後刪除。Debug／未提權測試使用 `%TEMP%`。程序若在寫入中被終止，刪除不會執行，殘留文件會在下次啟動時清理。
 - 執行檔路徑在嵌入前會驗證：引號、cmd metacharacter、控制字元、bidi 覆寫、`DEL` 與結尾反斜線都會被拒絕，因為路徑會以 XML 文字嵌入並在 action `Command` 中加上引號。
 
+## 登出風扇交接
+
+手動與曲線模式會固定風扇，而提權程式無法可靠收到工作階段內的登出通知，風扇可能在登出後維持固定。為此程式會註冊 `FrameworkCrateHandover` SYSTEM 排程工作，由 TerminalServices LocalSessionManager 事件 23（工作階段登出成功）觸發，延遲 30 秒後執行 `framework-crate.exe --handover --config <path>`：重連 EC、將風扇交還韌體、重新套用設定的充電上限，並把結果附加到 `%ProgramData%/framework-crate/handover.log`。
+
+- 啟動與每次風扇模式變更都會刷新工作，程式搬移後可自動修復；切換到 **Disabled** 會移除工作。
+- 只有執行檔解析後位於 Program Files 時才會註冊。SYSTEM 工作不得執行一般使用者可替換的執行檔；若程式從可攜資料夾執行，工作會被跳過，原因會寫入 `app.log`。開發版可用 `FRAMEWORK_CONTROL_ALLOW_UNPROTECTED_HANDOVER=1` 略過此檢查。
+- 若已有任何使用者工作階段重新登入，交接會跳過，避免覆蓋剛啟動的程式。
+
 ## 日誌
 
 `tracing` 輸出會寫到 `%APPDATA%/framework-crate/app.log`，而不是只寫 stderr；因為登入啟動的程序沒有主控台，只寫 stderr 會讓自動啟動的警告與錯誤全部遺失。
@@ -318,6 +327,7 @@ selected_sensors = []
 | `FRAMEWORK_CONTROL_CONFIG_DIR` | 在 debug／測試版覆寫設定目錄。必須是絕對路徑，不能含 `..` 或 `\\?\`／`\\.\` 前綴。Release 版忽略 |
 | `FRAMEWORK_ALLOW_UNKNOWN_MODULE_HASH=1` | 載入未 pin 雜湊的 PawnIO 模組 blob。僅在人工驗證較新上游版本後使用。僅 debug 版；release 一律 fail closed |
 | `FRAMEWORK_ALLOW_UNSIGNED_PAWNIO=1` | Authenticode 失敗時仍載入 PawnIO DLL，供自簽測試 DLL 使用。僅 debug 版；release 一律 fail closed |
+| `FRAMEWORK_CONTROL_ALLOW_UNPROTECTED_HANDOVER=1` | 允許從 Program Files 以外的位置註冊 SYSTEM 登出交接工作。僅供開發：任何能寫入該 exe 的使用者都可能以 SYSTEM 執行程式碼 |
 
 </details>
 
@@ -338,7 +348,7 @@ selected_sensors = []
 - **逐風扇曲線仍需多風扇驗證**：逐風扇曲線（多風扇機種、Unified off）只有模擬 EC 的單元測試 — 沒有 Framework 16／Desktop 多風扇硬體可驗證實機行為。單風扇機種走完全相同的既有路徑。
 - **EC 驅動**：必須安裝 Framework EC kernel driver，`framework_lib` 才能與硬體通訊。
 - **崩潰會留下最後套用狀態**：正常退出會還原韌體風扇控制並 flush 充電上限；但崩潰或被強制終止會跳過該路徑，EC 會保留最後寫入的風扇 duty，直到睡眠、重新開機或下次啟動重送。
-- **登出／重新開機的風扇交接不可靠**：部分 Windows 11 提權環境不會把 session-end broadcast 送到托盤視窗，因此手動／曲線 duty 可能在登出後持續到下次啟動或重開機。風扇由手動／曲線控制時，登出前請使用 **Restore Auto & Exit**。
+- **登出風扇交接依賴 SYSTEM 工作**：手動／曲線模式會註冊 `FrameworkCrateHandover`，在登出 30 秒後將風扇交還韌體。程式必須位於 Program Files 才會註冊（SYSTEM 工作不得執行使用者可替換的執行檔）；無法註冊時原因會寫入 `app.log`，風扇可能在下次啟動前維持固定，此時請先使用 **Restore Auto & Exit**。提權環境下的工作階段內登出通知本身仍不可靠。
 
 <details>
 <summary><strong>CPU Power 模組細節（PawnIO）</strong></summary>
