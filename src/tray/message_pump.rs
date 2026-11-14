@@ -39,8 +39,9 @@ static SESSION_HANDOVER_DONE: AtomicBool = AtomicBool::new(false);
 ///   SYSTEM, is unaffected).
 /// - `WM_WTSSESSION_CHANGE` / `WTS_SESSION_LOGOFF` is posted by the session
 ///   subsystem, but on elevated sign-out winlogon can terminate the process
-///   before it is dispatched, so it is a secondary path only. The primary
-///   elevated path is `CTRL_LOGOFF_EVENT` (see `install_console_logoff_channel`).
+///   before it is dispatched, so it is a best-effort supplement. The reliable
+///   elevated path is the SYSTEM handover task (`system_info::handover_task`);
+///   a hidden-console `CTRL_LOGOFF_EVENT` handler is a second supplement.
 ///
 /// `WM_WTSSESSION_CHANGE` also fires for logon/lock/disconnect; only the
 /// logoff code means teardown.
@@ -67,20 +68,25 @@ unsafe extern "system" fn console_ctrl_handler(ctrl_type: u32) -> i32 {
     0
 }
 
-/// Allocates a hidden console and registers `console_ctrl_handler`, the one
-/// sign-out notification channel that reaches elevated processes before
-/// winlogon kills them. The console window is hidden immediately; a brief
-/// flash at startup is the accepted cost.
+/// Allocates a hidden console and registers `console_ctrl_handler` as a
+/// best-effort sign-out channel: console alerts bypass the USER32 queue, so
+/// UIPI does not filter them. Whether winlogon always delivers the event to
+/// an elevated GUI app is unverified; the SYSTEM handover task remains the
+/// reliable path. A console we allocate is hidden immediately (brief flash);
+/// an existing console (debugger/terminal) is left visible.
 fn install_console_logoff_channel() {
     unsafe {
-        if GetConsoleWindow().is_null() && AllocConsole() == 0 {
-            tracing::warn!(
-                "AllocConsole failed ({}); elevated sign-out handover channel unavailable",
-                std::io::Error::last_os_error()
-            );
-            return;
+        let allocated = GetConsoleWindow().is_null();
+        if allocated {
+            if AllocConsole() == 0 {
+                tracing::warn!(
+                    "AllocConsole failed ({}); elevated sign-out handover channel unavailable",
+                    std::io::Error::last_os_error()
+                );
+                return;
+            }
+            ShowWindow(GetConsoleWindow(), SW_HIDE);
         }
-        ShowWindow(GetConsoleWindow(), SW_HIDE);
         if SetConsoleCtrlHandler(Some(console_ctrl_handler), 1) == 0 {
             tracing::warn!(
                 "SetConsoleCtrlHandler failed ({})",

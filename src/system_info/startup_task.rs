@@ -939,11 +939,30 @@ pub(super) fn validate_task_command_path(exe: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// Validates a path embedded in a task XML element and wrapped in quotes on
-/// the action command line (exe path, config path). Same rules as the exe
-/// path: the value is never re-quoted safely.
+/// Validates a path passed through the task action's `Arguments` element,
+/// where it is wrapped in quotes.
+///
+/// Task Scheduler starts the action with CreateProcess (no cmd.exe), so cmd
+/// metacharacters such as `&`, `|`, `;`, `%`, `(`, `)` are inert and legal in
+/// Windows profile paths (e.g. `C:\Users\Tom & Jerry\...`). Only a quote or a
+/// control character would break the command line, and a trailing backslash
+/// would escape the closing quote.
 pub(super) fn validate_task_arg_path(path: &str, label: &str) -> Result<(), String> {
-    validate_path_basics(path, label)
+    if path.contains(['"', '\n', '\r']) {
+        return Err(format!("{label} contains invalid characters"));
+    }
+    // Block all other control characters plus bidi overrides that could hide
+    // injected text.
+    if path
+        .chars()
+        .any(|c| c.is_control() || c == '\u{202E}' || c == '\u{202D}')
+    {
+        return Err(format!("{label} contains invalid unicode"));
+    }
+    if path.ends_with('\\') {
+        return Err(format!("{label} must not end with backslash"));
+    }
+    Ok(())
 }
 
 fn validate_path_basics(s: &str, label: &str) -> Result<(), String> {

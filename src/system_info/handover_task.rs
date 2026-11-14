@@ -1,11 +1,11 @@
 //! Sign-out fan handover task registration (Plan B for elevated sign-out).
 //!
-//! Empirically (2026-11-10/11 tests) an elevated app never receives any
-//! in-session logoff notification before winlogon kills it: WM_ENDSESSION,
-//! WTS, and CTRL_LOGOFF_EVENT all fail to arrive. The fan therefore stays
-//! pinned at the last manual duty after sign-out. The only mechanism that
-//! runs *after* the session is gone is a Task Scheduler task registered as
-//! SYSTEM, triggered by the sign-out event itself.
+//! Empirically (2026-11-10/11 tests) an elevated app did not receive any
+//! in-session logoff notification before winlogon killed it. The tray pump now
+//! also registers WTS notifications and a hidden-console ctrl handler as
+//! best-effort supplements, but the reliable mechanism that runs *after* the
+//! session is gone is this Task Scheduler task registered as SYSTEM and
+//! triggered by the sign-out event itself.
 //!
 //! Trigger choice: the XML schema has no logoff value for
 //! `SessionStateChangeTrigger` (only connect/disconnect/lock/unlock strings;
@@ -252,13 +252,13 @@ fn create_handover_task() -> Result<(), String> {
     let _ = std::fs::remove_file(&xml_path);
     let out = created?;
     if !out.status.success() {
+        let detail = schtasks_error_detail(&out);
         if !is_elevated() {
-            return Err(
-                "sign-out handover task needs administrator privileges; run Framework Crate as administrator"
-                    .to_string(),
-            );
+            return Err(format!(
+                "sign-out handover task needs administrator privileges; run Framework Crate as administrator ({detail})"
+            ));
         }
-        return Err(schtasks_error_detail(&out));
+        return Err(detail);
     }
     if !handover_task_enabled() {
         return Err("handover task was created but cannot be queried".to_string());
@@ -293,8 +293,16 @@ pub fn sync_handover_task(mode: &AtomicU64) -> Result<(), String> {
         create_handover_task()
     } else if handover_task_enabled() {
         delete_handover_task()
-    } else {
+    } else if is_elevated() {
         Ok(())
+    } else {
+        // Task Scheduler denies reading a SYSTEM task to a non-elevated
+        // caller, so the failed query above is not evidence that no task
+        // exists. Report instead of silently leaving a stale task behind.
+        Err(
+            "cannot verify or remove the SYSTEM handover task without administrator privileges"
+                .to_string(),
+        )
     }
 }
 
@@ -379,12 +387,12 @@ mod tests {
     #[test]
     fn handover_task_rejects_dangerous_paths() {
         let base = r"C:\app\framework-crate.exe";
+        // Config arguments only need to survive quote-wrapping: Task
+        // Scheduler does not run the action through cmd.exe.
         for bad in [
             r#"C:\a"b\config.toml"#,
-            r"C:\a&b\config.toml",
-            r"C:\a|b\config.toml",
-            r"C:\a;b\config.toml",
             "C:\\a\nconfig.toml",
+            "C:\\a\rconfig.toml",
             r"C:\cfg\",
         ] {
             assert!(
@@ -392,10 +400,33 @@ mod tests {
                 "expected rejection for {bad:?}"
             );
         }
+        // The exe path keeps the stricter set because it is embedded as the
+        // task Command and run directly.
         for bad in [r#"C:\a"b.exe"#, r"C:\a&b.exe", r"C:\app\"] {
             assert!(
                 build_handover_task(bad, r"C:\cfg\config.toml").is_err(),
                 "expected rejection for {bad:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn handover_task_accepts_valid_profile_characters() {
+        // Legal in Windows user/profile names and inert to CreateProcess
+        // because the path is quote-wrapped in Arguments.
+        for config in [
+            r"C:\Users\Tom & Jerry\AppData\Roaming\framework-crate\config.toml",
+            r"C:\Users\John (Work)\AppData\Roaming\framework-crate\config.toml",
+            r"C:\Users\O'Brien\AppData\Roaming\framework-crate\config.toml",
+            r"C:\Users\Jane!Doe\AppData\Roaming\framework-crate\config.toml",
+        ] {
+            assert!(
+                build_handover_task(
+                    r"C:\Program Files\framework-crate\framework-crate.exe",
+                    config
+                )
+                .is_ok(),
+                "expected acceptance for {config:?}"
             );
         }
     }

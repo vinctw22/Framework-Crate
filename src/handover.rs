@@ -40,6 +40,11 @@ fn log_path_for(config_path: Option<&Path>) -> PathBuf {
 }
 
 fn log_line(path: &Path, line: &str) {
+    // The config directory can be missing after a profile reset; create it so
+    // the SYSTEM run leaves a verifiable trace instead of failing silently.
+    if let Some(dir) = path.parent() {
+        let _ = std::fs::create_dir_all(dir);
+    }
     if let Ok(mut f) = std::fs::OpenOptions::new()
         .create(true)
         .append(true)
@@ -190,5 +195,13 @@ mod tests {
     fn log_path_prefers_config_parent() {
         let p = log_path_for(Some(Path::new("C:\\cfg\\framework-crate\\config.toml")));
         assert_eq!(p, PathBuf::from("C:\\cfg\\framework-crate\\handover.log"));
+    }
+
+    #[test]
+    fn log_line_creates_missing_parent_directory() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("nested").join("handover.log");
+        log_line(&path, "hello");
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "hello\n");
     }
 }
