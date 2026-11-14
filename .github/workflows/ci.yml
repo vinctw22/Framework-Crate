@@ -37,9 +37,11 @@ jobs:
           fetch-tags: true
 
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # pinned action
         with:
-          toolchain: stable
+          # Pinned: stable 1.100 added clippy::needless_bool and turned CI red
+          # without a code change. Bump deliberately, not implicitly.
+          toolchain: 1.100.0
 
       - name: Cache Cargo dependencies
         uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
