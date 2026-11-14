@@ -390,10 +390,7 @@ impl CpuPowerState {
         }
         let start = self.sync_start_ms.load(Ordering::Acquire);
         // Grace period after start_sync before declaring dead (thread startup/handshake)
-        if start != 0 && crate::util::monotonic_ms().saturating_sub(start) < 1500 {
-            return false;
-        }
-        true
+        start == 0 || crate::util::monotonic_ms().saturating_sub(start) >= 1500
     }
 
     /// Attempts to revive a dead sync thread using the last desired params.
