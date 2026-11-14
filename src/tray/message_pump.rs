@@ -7,11 +7,18 @@ use crate::system_info;
 
 use crate::system_info::{PBT_APMRESUMEAUTOMATIC, PBT_APMRESUMESUSPEND, WM_POWERBROADCAST};
 use windows_sys::Win32::Foundation::POINT;
+use windows_sys::Win32::System::Console::{
+    AllocConsole, CTRL_LOGOFF_EVENT, CTRL_SHUTDOWN_EVENT, GetConsoleWindow, SetConsoleCtrlHandler,
+};
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
+use windows_sys::Win32::System::RemoteDesktop::{
+    NOTIFY_FOR_THIS_SESSION, WTSRegisterSessionNotification, WTSUnRegisterSessionNotification,
+};
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DefWindowProcW, DestroyIcon, DestroyWindow, DispatchMessageW, GetCursorPos,
-    GetMessageW, MSG, PostMessageW, PostThreadMessageW, RegisterClassW, SetForegroundWindow,
-    ShowWindow, TranslateMessage, UnregisterClassW, WNDCLASSW,
+    GetMessageW, MSG, PostMessageW, PostThreadMessageW, RegisterClassW, SW_HIDE,
+    SetForegroundWindow, ShowWindow, TranslateMessage, UnregisterClassW, WM_WTSSESSION_CHANGE,
+    WNDCLASSW, WTS_SESSION_LOGOFF,
 };
 
 const WM_APP: u32 = 0x8000;
@@ -22,6 +29,66 @@ const WM_RBUTTONUP: u32 = 0x0205;
 const WM_QUERYENDSESSION: u32 = 0x0011;
 const WM_ENDSESSION: u32 = 0x0016;
 static SESSION_HANDOVER_DONE: AtomicBool = AtomicBool::new(false);
+
+/// True when the message means "the session is ending now, do not expect
+/// more work". Two window-message delivery channels, one truth:
+///
+/// - `WM_ENDSESSION` with `wparam != 0` is the classic broadcast, but it is
+///   subject to UIPI filtering: when a non-elevated shell starts sign-out,
+///   elevated processes never receive it (the shutdown path, started by
+///   SYSTEM, is unaffected).
+/// - `WM_WTSSESSION_CHANGE` / `WTS_SESSION_LOGOFF` is posted by the session
+///   subsystem, but on elevated sign-out winlogon can terminate the process
+///   before it is dispatched, so it is a secondary path only. The primary
+///   elevated path is `CTRL_LOGOFF_EVENT` (see `install_console_logoff_channel`).
+///
+/// `WM_WTSSESSION_CHANGE` also fires for logon/lock/disconnect; only the
+/// logoff code means teardown.
+fn is_session_end_message(msg: u32, wparam: usize) -> bool {
+    (msg == WM_ENDSESSION && wparam != 0)
+        || (msg == WM_WTSSESSION_CHANGE && wparam as u32 == WTS_SESSION_LOGOFF)
+}
+
+/// Console ctrl handler: winlogon sends `CTRL_LOGOFF_EVENT` (sign-out) and
+/// `CTRL_SHUTDOWN_EVENT` through the console driver before terminating the
+/// session's processes. Console alerts bypass the USER32 message queue, so
+/// UIPI integrity filtering does not apply and elevated installs receive
+/// them even when a non-elevated shell starts the sign-out.
+unsafe extern "system" fn console_ctrl_handler(ctrl_type: u32) -> i32 {
+    if (ctrl_type == CTRL_LOGOFF_EVENT || ctrl_type == CTRL_SHUTDOWN_EVENT)
+        && SESSION_HANDOVER_DONE
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .is_ok()
+    {
+        super::run_session_end_hook();
+    }
+    // FALSE: after the synchronous handover returns, let the default
+    // handler terminate the process like any console app.
+    0
+}
+
+/// Allocates a hidden console and registers `console_ctrl_handler`, the one
+/// sign-out notification channel that reaches elevated processes before
+/// winlogon kills them. The console window is hidden immediately; a brief
+/// flash at startup is the accepted cost.
+fn install_console_logoff_channel() {
+    unsafe {
+        if GetConsoleWindow().is_null() && AllocConsole() == 0 {
+            tracing::warn!(
+                "AllocConsole failed ({}); elevated sign-out handover channel unavailable",
+                std::io::Error::last_os_error()
+            );
+            return;
+        }
+        ShowWindow(GetConsoleWindow(), SW_HIDE);
+        if SetConsoleCtrlHandler(Some(console_ctrl_handler), 1) == 0 {
+            tracing::warn!(
+                "SetConsoleCtrlHandler failed ({})",
+                std::io::Error::last_os_error()
+            );
+        }
+    }
+}
 // Explorer restart notification is a registered message, not a fixed
 // constant. Must be queried via `RegisterWindowMessageW("TaskbarCreated")`.
 
@@ -103,8 +170,8 @@ unsafe extern "system" fn tray_wnd_proc(
     if msg == WM_QUERYENDSESSION {
         return 1;
     }
-    if msg == WM_ENDSESSION {
-        if wparam != 0
+    if msg == WM_ENDSESSION || msg == WM_WTSSESSION_CHANGE {
+        if is_session_end_message(msg, wparam)
             && SESSION_HANDOVER_DONE
                 .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
                 .is_ok()
@@ -261,6 +328,11 @@ fn cleanup_and_exit(
     }
     if !tray_hwnd.is_null() {
         unsafe {
+            // Drop the WTS registration before the window goes away, or the
+            // session subsystem keeps a dangling HWND reference until the
+            // process exits (harmless but sloppy; a reinit pump re-registers
+            // its own window right after).
+            WTSUnRegisterSessionNotification(tray_hwnd);
             DestroyWindow(tray_hwnd);
             if owns_global {
                 let class_name: Vec<u16> = "FrameworkControlTray\0".encode_utf16().collect();
@@ -302,6 +374,23 @@ fn message_pump_loop(
         hwnd.set(tray_hwnd as isize);
     });
     store_global_hwnd(tray_hwnd as isize);
+
+    // Second session-end delivery path: the classic WM_ENDSESSION broadcast
+    // is UIPI-filtered against elevated processes when a non-elevated shell
+    // starts sign-out, so register this window with the session subsystem,
+    // whose WM_WTSSESSION_CHANGE posts are not caller-IL filtered. Failure
+    // is non-fatal: non-elevated installs still get the classic broadcast.
+    if unsafe { WTSRegisterSessionNotification(tray_hwnd, NOTIFY_FOR_THIS_SESSION) } == 0 {
+        tracing::warn!(
+            "WTSRegisterSessionNotification failed ({}); elevated sign-out handover may rely on the classic broadcast only",
+            std::io::Error::last_os_error()
+        );
+    }
+
+    // Primary elevated sign-out channel: console CTRL_LOGOFF_EVENT, which
+    // winlogon delivers through the console driver before killing the
+    // process and which UIPI cannot filter.
+    install_console_logoff_channel();
 
     let mut tray_icon_loaded = false;
     let mut hicon: Option<isize> = None;
@@ -481,5 +570,52 @@ fn handle_tray_right_click(event_tx: &mpsc::Sender<TrayEvent>) {
             }
             _ => {}
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn endsession_with_nonzero_wparam_is_session_end() {
+        assert!(is_session_end_message(WM_ENDSESSION, 1));
+    }
+
+    #[test]
+    fn endsession_with_zero_wparam_is_a_cancelled_teardown() {
+        // Shutdown was vetoed; the poll loop must keep running.
+        assert!(!is_session_end_message(WM_ENDSESSION, 0));
+    }
+
+    #[test]
+    fn wts_logoff_is_session_end() {
+        assert!(is_session_end_message(
+            WM_WTSSESSION_CHANGE,
+            WTS_SESSION_LOGOFF as usize
+        ));
+    }
+
+    #[test]
+    fn wts_events_other_than_logoff_are_not_session_end() {
+        // Console connect/disconnect, logon, and lock codes must not stop
+        // the poll loop or flip the fan to firmware control.
+        let not_teardown: [u32; 4] = [0x1, 0x2, 0x5, 0x7];
+        for code in not_teardown {
+            assert!(
+                !is_session_end_message(WM_WTSSESSION_CHANGE, code as usize),
+                "wparam {code} must not trigger handover"
+            );
+        }
+    }
+
+    #[test]
+    fn unrelated_messages_are_not_session_end() {
+        assert!(!is_session_end_message(WM_QUERYENDSESSION, 0));
+        assert!(!is_session_end_message(
+            WM_TRAYICON,
+            WTS_SESSION_LOGOFF as usize
+        ));
+        assert!(!is_session_end_message(WM_POWERBROADCAST, 0));
     }
 }
