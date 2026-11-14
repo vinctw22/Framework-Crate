@@ -11,7 +11,7 @@ mod io;
 mod paths;
 mod strict;
 
-pub use io::{load, save_versioned};
+pub use io::{load, load_from, save_versioned};
 pub use paths::config_path;
 pub use strict::{ImportedSettings, export_to_path, import_file};
 

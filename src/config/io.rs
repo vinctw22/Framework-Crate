@@ -59,10 +59,17 @@ fn backup_corrupt_config(path: &std::path::Path, content: &[u8]) {
 
 pub fn load() -> Result<Config, String> {
     let path = config_path()?;
+    load_from(&path)
+}
+
+/// Loads from an explicit path. Used by the headless `--handover` mode,
+/// where the default path would resolve against the SYSTEM profile instead
+/// of the user's config.
+pub fn load_from(path: &std::path::Path) -> Result<Config, String> {
     tracing::debug!("Loading config from: {}", path.display());
     if path.exists() {
-        warn_if_world_writable(&path);
-        let bytes = match crate::util::read_validated_file_bytes(&path) {
+        warn_if_world_writable(path);
+        let bytes = match crate::util::read_validated_file_bytes(path) {
             Ok(bytes) => bytes,
             Err(e) => {
                 return Err(format!("Failed to read {}: {}", path.display(), e));
@@ -71,7 +78,7 @@ pub fn load() -> Result<Config, String> {
         let content = match String::from_utf8(bytes) {
             Ok(content) => content,
             Err(e) => {
-                backup_corrupt_config(&path, e.as_bytes());
+                backup_corrupt_config(path, e.as_bytes());
                 return Err(format!("Failed to read {}: {}", path.display(), e));
             }
         };
@@ -79,7 +86,7 @@ pub fn load() -> Result<Config, String> {
             Ok(cfg) => cfg,
             Err(e) => {
                 // Load falls back to defaults and next save overwrites; preserve corrupt file.
-                backup_corrupt_config(&path, content.as_bytes());
+                backup_corrupt_config(path, content.as_bytes());
                 return Err(format!("Failed to parse {}: {}", path.display(), e));
             }
         };
@@ -413,7 +420,7 @@ mod tests {
         std::fs::write(&path, &content).unwrap();
 
         // TOML ignores # comments so direct parse matches load logic.
-        let raw = std::fs::read_to_string(&path).unwrap();
+        let raw = std::fs::read_to_string(path).unwrap();
         let loaded: Config = toml::from_str(&raw).unwrap();
         assert_eq!(loaded.fan.mode, FanControlMode::Manual);
         assert_eq!(loaded.fan.manual.as_ref().unwrap().duty_pct, 75);
@@ -485,7 +492,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("bad.toml");
         std::fs::write(&path, "this is not valid toml = [").unwrap();
-        let raw = std::fs::read_to_string(&path).unwrap();
+        let raw = std::fs::read_to_string(path).unwrap();
         let result: Result<Config, _> = toml::from_str(&raw);
         assert!(result.is_err());
     }
@@ -525,7 +532,7 @@ mod tests {
         crate::config::save_versioned(&stale, base + 50, true).unwrap();
 
         let path = crate::config::config_path().unwrap();
-        let raw = std::fs::read_to_string(&path).unwrap();
+        let raw = std::fs::read_to_string(path).unwrap();
         let loaded: Config = toml::from_str(&raw).unwrap();
         assert_eq!(loaded.fan.manual.as_ref().unwrap().duty_pct, 70);
 
