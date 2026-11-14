@@ -449,7 +449,21 @@ pub fn shell_notify_add(hwnd: isize, icon: isize, tip: &str, callback_msg: u32) 
     nid.hIcon = icon as *mut core::ffi::c_void;
     fill_tip(&mut nid.szTip, tip);
     // SAFETY: Shell_NotifyIconW with valid NID.
-    unsafe { Shell_NotifyIconW(NIM_ADD, &nid) != 0 }
+    let added = unsafe { Shell_NotifyIconW(NIM_ADD, &nid) != 0 };
+    if !added {
+        // A previous instance killed by sign-out can leave a stale entry
+        // under this uID that blocks NIM_ADD forever. Clear and retry once.
+        unsafe { Shell_NotifyIconW(NIM_DELETE, &nid) };
+        let added = unsafe { Shell_NotifyIconW(NIM_ADD, &nid) != 0 };
+        if !added {
+            tracing::error!(
+                "Shell_NotifyIconW NIM_ADD failed: {}",
+                std::io::Error::last_os_error()
+            );
+        }
+        return added;
+    }
+    true
 }
 
 /// Removes tray icon; SAFETY hwnd must match add handle.
