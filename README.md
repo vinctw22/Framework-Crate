@@ -13,9 +13,9 @@ Inspired by [ozturkkl/framework-control](https://github.com/ozturkkl/framework-c
 
 ## Downloads
 
-Prebuilt Windows binaries are attached to each [GitHub Release](https://github.com/vinctw22/Framework-Crate/releases) as `framework-crate.exe`. The release notes list what changed in that version.
+Each [GitHub Release](https://github.com/vinctw22/Framework-Crate/releases) includes the per-machine installer `FrameworkCrate-Setup-<version>.exe` and a portable `framework-crate.exe`. The installer is recommended: it places the app under `C:\Program Files\Framework Crate` and adds an uninstall entry in Windows Settings. The release notes list what changed in that version.
 
-Download the `.exe`, then run it as administrator. PawnIO is optional and only needed for the CPU Power card; everything else works with the Framework EC driver alone. For the sign-out fan handover, keep the exe under Program Files: a portable copy in Downloads/Desktop cannot register the SYSTEM task.
+Run the installer, or start the portable `.exe` as administrator. PawnIO is optional and only needed for the CPU Power card; everything else works with the Framework EC driver alone. To use the sign-out fan handover, use the installer or keep the exe under Program Files: a portable copy in Downloads/Desktop cannot register the SYSTEM task. Build details are in [the release workflow](.github/workflows/ci.yml).
 
 ## Screenshot
 

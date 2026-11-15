@@ -13,9 +13,9 @@
 
 ## 下載
 
-每個 [GitHub Release](https://github.com/vinctw22/Framework-Crate/releases) 都會附上預先編譯的 Windows 執行檔 `framework-crate.exe`，release notes 會列出該版本變更。
+每個 [GitHub Release](https://github.com/vinctw22/Framework-Crate/releases) 都會附上 per-machine 安裝程式 `FrameworkCrate-Setup-<version>.exe` 與可攜版 `framework-crate.exe`。建議使用安裝程式：會安裝到 `C:\Program Files\Framework Crate`，並在 Windows 設定中建立解除安裝項目。release notes 會列出該版本變更。
 
-下載 `.exe` 後以管理員身分執行。PawnIO 為選用元件，只有 CPU Power 卡片需要；其他功能只要安裝 Framework EC 驅動即可運作。若要使用登出風扇交接，請把 exe 放在 Program Files；放在 Downloads／Desktop 的可攜版無法註冊 SYSTEM 工作。
+執行安裝程式，或將可攜版 `.exe` 以管理員身分執行。PawnIO 為選用元件，只有 CPU Power 卡片需要；其他功能只要安裝 Framework EC 驅動即可運作。若要使用登出風扇交接，請使用安裝程式或把 exe 放在 Program Files；放在 Downloads／Desktop 的可攜版無法註冊 SYSTEM 工作。建置方式見 [release workflow](.github/workflows/ci.yml)。
 
 ## 螢幕截圖
 

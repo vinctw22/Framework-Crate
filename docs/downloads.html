@@ -4,11 +4,11 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Downloads — Framework Crate</title>
-<meta name="description" content="Download the latest Framework Crate release for Windows and verify its SHA-256 checksum.">
+<meta name="description" content="Download the latest Framework Crate installer or portable Windows build and verify its SHA-256 checksum.">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="Framework Crate">
 <meta property="og:title" content="Downloads — Framework Crate">
-<meta property="og:description" content="Download the latest Framework Crate release for Windows and verify its SHA-256 checksum.">
+<meta property="og:description" content="Download the latest Framework Crate installer or portable Windows build and verify its SHA-256 checksum.">
 <meta property="og:url" content="https://vinctw22.github.io/Framework-Crate/downloads.html">
 <meta property="og:image" content="https://raw.githubusercontent.com/vinctw22/Framework-Crate/master/images/Framework-Crate-v0.9.5-1.png">
 <meta property="og:image:alt" content="Framework Crate main window">
@@ -40,7 +40,7 @@
 </div></header>
 <div class="wrap">
 
-<p class="muted">Prebuilt <code>framework-crate.exe</code> binaries for Windows. Run as administrator.</p>
+<p class="muted">Prebuilt Windows installer and portable <code>framework-crate.exe</code>. The installer is recommended: it installs to <code>C:\Program Files\Framework Crate</code> and adds an uninstall entry in Windows Settings. Portable copies outside Program Files skip the sign-out fan handover.</p>
 
 <div class="card">
 <div class="dl-grid">
@@ -50,6 +50,9 @@
 <p class="muted small" id="dl-file-meta">Loading latest release info…</p>
 <p class="vt-line" id="vt-line" hidden><span class="muted small">VirusTotal:</span>
 <a id="vt-link" class="vt-chip" href="#">…</a></p>
+<p class="muted small" id="dl-portable-line" hidden>Portable:
+<a id="dl-portable-link" href="#">framework-crate.exe</a>
+<span id="dl-portable-meta"></span></p>
 </div>
 <div>
 <p><strong>What's new in <span id="dl-ver-name">the latest release</span></strong></p>
@@ -138,12 +141,16 @@
     if (!releases.length) throw new Error("no releases");
     var latest = releases[0];
     var isExe = function (a) { return /\.exe$/i.test(a.name || ""); };
-    var exe = (latest.assets || []).filter(isExe)[0];
+    var isSetup = function (a) { return /FrameworkCrate-Setup-.*\.exe$/i.test(a.name || ""); };
+    var isPortable = function (a) { return /^framework-crate\.exe$/i.test(a.name || ""); };
+    var setup = (latest.assets || []).filter(isSetup)[0];
+    var portable = (latest.assets || []).filter(isPortable)[0];
+    var primary = setup || portable;
     var btn = document.getElementById("dl-btn");
-    btn.textContent = "Download " + latest.tag_name;
-    btn.href = exe ? exe.browser_download_url : latest.html_url;
-    document.getElementById("dl-file-name").textContent = exe ? exe.name : "framework-crate.exe";
-    var exeDls = (exe && exe.download_count) || 0;
+    btn.textContent = (setup ? "Download installer " : portable ? "Download portable " : "Download ") + latest.tag_name;
+    btn.href = primary ? primary.browser_download_url : latest.html_url;
+    document.getElementById("dl-file-name").textContent = primary ? primary.name : "framework-crate.exe";
+    var primaryDls = (primary && primary.download_count) || 0;
     var fm = document.getElementById("dl-file-meta");
     fm.innerHTML = "";
     function addMetaLine(txt) {
@@ -152,25 +159,42 @@
       fm.appendChild(d);
     }
     addMetaLine("Release: " + latest.published_at.slice(0, 10));
-    if (exe) addMetaLine("Size: " + fmtSize(exe.size).replace(/^ · /, ""));
-    addMetaLine("Downloads: " + exeDls.toLocaleString("en-US"));
+    if (primary) addMetaLine("Size: " + fmtSize(primary.size).replace(/^ · /, ""));
+    addMetaLine("Type: " + (setup ? "installer (Program Files)" : "portable"));
+    addMetaLine("Downloads: " + primaryDls.toLocaleString("en-US"));
+    var portableLine = document.getElementById("dl-portable-line");
+    if (setup && portable) {
+      document.getElementById("dl-portable-link").href = portable.browser_download_url;
+      document.getElementById("dl-portable-link").textContent = portable.name;
+      document.getElementById("dl-portable-meta").textContent =
+        fmtSize(portable.size) + " · " + ((portable.download_count || 0).toLocaleString("en-US")) + " downloads";
+      portableLine.hidden = false;
+    } else {
+      portableLine.hidden = true;
+    }
     document.getElementById("dl-ver-name").textContent = latest.tag_name;
     renderNotes(document.getElementById("dl-notes"), latest.body || "No release notes provided.");
-    // The release notes carry the scan result; render it as a chip instead of
-    // fetching vt.json from the release assets (shields.io blocks that domain
-    // and release files send no CORS headers).
+    // The release notes carry one scan result per artifact; render the
+    // primary artifact's report as a chip instead of fetching vt.json (release
+    // files send no CORS headers). The VT step writes exe first, setup last.
     var body = latest.body || "";
-    var vtUrl = body.match(/https:\/\/www\.virustotal\.com\/gui\/file\/[0-9a-f]{64}/i);
-    var vtVerdict = body.match(/(\d+)\s+malicious,\s+(\d+)\s+suspicious\s+of\s+(\d+)\s+engines/i);
+    var vtUrls = body.match(/https:\/\/www\.virustotal\.com\/gui\/file\/[0-9a-f]{64}/gi) || [];
+    var vtMatches = [];
+    var vtRe = /(\d+)\s+malicious,\s+(\d+)\s+suspicious\s+of\s+(\d+)\s+engines/gi;
+    var vtMatch;
+    while ((vtMatch = vtRe.exec(body)) !== null) vtMatches.push(vtMatch);
+    var vtIndex = (setup && vtUrls.length > 1) ? vtUrls.length - 1 : 0;
+    var vtUrl = vtUrls[vtIndex];
+    var vtVerdict = vtMatches[vtIndex] || vtMatches[0];
     if (vtUrl) {
       var vtLine = document.getElementById("vt-line");
       var vtLink = document.getElementById("vt-link");
-      vtLink.href = vtUrl[0];
+      vtLink.href = vtUrl;
       if (vtVerdict) {
-        vtLink.textContent = latest.tag_name + " · " + vtVerdict[1] + " malicious, " +
-          vtVerdict[2] + " suspicious of " + vtVerdict[3] + " engines";
+        vtLink.textContent = latest.tag_name + " · " + (setup ? "installer" : "portable") + " · " +
+          vtVerdict[1] + " malicious, " + vtVerdict[2] + " suspicious of " + vtVerdict[3] + " engines";
       } else {
-        vtLink.textContent = latest.tag_name + " · view report";
+        vtLink.textContent = latest.tag_name + " · " + (setup ? "installer" : "portable") + " · view report";
       }
       vtLine.hidden = false;
     }
@@ -179,8 +203,8 @@
     var copyBtn = document.getElementById("dl-sha-copy");
     // GitHub's API exposes the asset digest, so no cross-origin fetch of
     // SHA256SUMS is needed (release-file hosts do not send CORS headers).
-    var digest = exe && /^sha256:[0-9a-f]{64}$/i.test(exe.digest || "")
-      ? exe.digest.slice(7).toLowerCase()
+    var digest = primary && /^sha256:[0-9a-f]{64}$/i.test(primary.digest || "")
+      ? primary.digest.slice(7).toLowerCase()
       : "";
     if (digest) {
       shaEl.textContent = digest;
@@ -225,7 +249,7 @@
       body.className = "rel-body";
       var files = document.createElement("ul");
       files.className = "tight";
-      (rel.assets || []).filter(function (a) { return !/\.json$/i.test(a.name); }).forEach(function (a) {
+      (rel.assets || []).filter(function (a) { return !/\.(json|ya?ml)$/i.test(a.name); }).forEach(function (a) {
         var li = document.createElement("li");
         var link = document.createElement("a");
         link.href = a.browser_download_url;
@@ -252,7 +276,8 @@
       item.addEventListener("toggle", function () {
         if (!item.open || shaLoaded) return;
         shaLoaded = true;
-        var relExe = (rel.assets || []).filter(isExe)[0];
+        var relExe = (rel.assets || []).filter(isSetup)[0] ||
+          (rel.assets || []).filter(isPortable)[0];
         var digest = relExe && /^sha256:[0-9a-f]{64}$/i.test(relExe.digest || "")
           ? relExe.digest.slice(7).toLowerCase()
           : "";

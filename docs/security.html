@@ -51,7 +51,7 @@
 
 <h2>Scope</h2>
 <ul class="tight">
-<li><strong>In scope:</strong> EC fan/thermal writes, MSR power-limit writes, PawnIO install/download verification, config and log file integrity, startup-task behavior, dependency supply-chain issues.</li>
+<li><strong>In scope:</strong> EC fan/thermal writes, MSR power-limit writes, PawnIO install/download verification, config and log file integrity, startup and sign-out handover task behavior, installer and release artifact integrity, dependency supply-chain issues.</li>
 <li><strong>Out of scope:</strong> physical-access attacks, social engineering, Windows or third-party driver flaws, and denial of service requiring admin rights you already granted the app.</li>
 </ul>
 
@@ -61,6 +61,7 @@
 <li><strong>cargo audit</strong> (RustSec) runs in CI; known-unmaintained crates are allow-listed with review dates.</li>
 <li><strong>Dependabot</strong> alerts and monthly update PRs cover dependencies and GitHub Actions.</li>
 <li><strong>Secret scanning + push protection</strong> block accidental commits of tokens and keys.</li>
+<li><strong>Release artifacts</strong> publish SHA-256 checksums and VirusTotal links for both the portable exe and the Inno installer; winget manifests pin the installer SHA-256.</li>
 </ul>
 
 <h2>What to expect</h2>

@@ -51,7 +51,7 @@
 
 <h2>範圍</h2>
 <ul class="tight">
-<li><strong>範圍內：</strong> EC 風扇／溫度寫入、MSR 功耗限制寫入、PawnIO 安裝／下載驗證、設定與日誌完整性、開機工作行為、相依套件供應鏈問題。</li>
+<li><strong>範圍內：</strong> EC 風扇／溫度寫入、MSR 功耗限制寫入、PawnIO 安裝／下載驗證、設定與日誌完整性、開機與登出交接工作行為、安裝程式與 release artifact 完整性、相依套件供應鏈問題。</li>
 <li><strong>範圍外：</strong> 實體存取攻擊、社交工程、Windows 或第三方驅動缺陷，以及需要你已授予程式管理員權限的阻斷服務。</li>
 </ul>
 
@@ -61,6 +61,7 @@
 <li><strong>cargo audit</strong>（RustSec）在 CI 執行；已知停止維護的 crate 會列入 allow-list 並記錄審查日期。</li>
 <li><strong>Dependabot</strong> 警報與每月更新 PR 涵蓋相依套件與 GitHub Actions。</li>
 <li><strong>Secret scanning + push protection</strong> 阻擋意外提交 token 與金鑰。</li>
+<li><strong>Release artifact</strong> 會公布可攜版 exe 與 Inno installer 的 SHA-256 與 VirusTotal 連結；winget manifest 也會釘住 installer 的 SHA-256。</li>
 </ul>
 
 <h2>預期流程</h2>
