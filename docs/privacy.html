@@ -45,11 +45,12 @@
 <div class="card"><strong>Short version:</strong> Framework Crate works fully offline. It collects no personal data, creates no accounts, runs no analytics or tracking, and sends nothing anywhere unless you explicitly press a button that needs the network.</div>
 
 <h2>Data stored on your device</h2>
-<p>Everything the app needs lives on your own PC, under <code>%APPDATA%\framework-crate</code>:</p>
+<p>Everything the app needs stays on your own PC. Settings live under <code>%APPDATA%\framework-crate</code>:</p>
 <ul class="tight">
 <li><strong>Settings</strong> (<code>config.toml</code>) — your fan curves, charge limit, telemetry, theme, CPU power profiles, and captured CPU power baselines.</li>
 <li><strong>BIOS power defaults</strong> (<code>bios_defaults.toml</code>) — a snapshot of factory CPU power limits used by Reset.</li>
 <li><strong>Log file</strong> (<code>app.log</code>, size-rotated) — local warnings/errors for diagnosing issues.</li>
+<li><strong>Sign-out trace</strong> (<code>%ProgramData%\framework-crate\handover.log</code>) — written locally by the SYSTEM handover task when it returns the fan to firmware; never uploaded.</li>
 </ul>
 <p>Hardware readings (temperatures, fan RPM, battery and PD state) are processed in memory to drive the UI and fan control. They are never uploaded.</p>
 

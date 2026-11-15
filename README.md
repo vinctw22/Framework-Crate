@@ -15,7 +15,7 @@ Inspired by [ozturkkl/framework-control](https://github.com/ozturkkl/framework-c
 
 Prebuilt Windows binaries are attached to each [GitHub Release](https://github.com/vinctw22/Framework-Crate/releases) as `framework-crate.exe`. The release notes list what changed in that version.
 
-Download the `.exe`, then run it as administrator. PawnIO is optional and only needed for the CPU Power card; everything else works with the Framework EC driver alone.
+Download the `.exe`, then run it as administrator. PawnIO is optional and only needed for the CPU Power card; everything else works with the Framework EC driver alone. For the sign-out fan handover, keep the exe under Program Files: a portable copy in Downloads/Desktop cannot register the SYSTEM task.
 
 ## Screenshot
 
@@ -75,6 +75,7 @@ Download the `.exe`, then run it as administrator. PawnIO is optional and only n
 ```
 src/
   main.rs              — Iced 0.14 application entry point, boot function, rotating file log sink
+  handover.rs          — Headless `--handover` runtime for the SYSTEM sign-out task
   app/                 — App struct, Message enum, dispatch, handler submodules
     mod.rs             — App/AppState/Message types, new()/subscription()/update()/view(), update_inner dispatcher
     config.rs          — Config-related message handlers + save/mutate_config helpers
@@ -126,6 +127,8 @@ src/
   curve_canvas.rs      — Interactive canvas-based fan curve editor (drag points, sensor markers)
   fan_control.rs       — CurveStepper, rate limiting, duty calculation
   system_info.rs       — Windows API FFI (CPU, RAM, OS, display, tray)
+    handover_task.rs   — SYSTEM sign-out task registration + Program Files/ACL gate
+    startup_task.rs    — Logon task, protected task directory, single-instance guard
   probe.rs             — HeightProbe widget for dynamic window sizing
   util.rs              — Time utilities, lock helpers (read_lock, with_write_lock), PawnIO timeout guard
   ec_serial.rs         — Single-writer EC dispatcher: all EC driver calls go through one FIFO worker, so hardware execution order always matches submission order
@@ -147,7 +150,7 @@ framework_lib (CrosEc) → ec_serial (single FIFO writer) → background_task �
 ```
 
 - **Hardware access**: The `framework_lib` crate calls the EC directly via the kernel driver (no subprocess)
-- **EC serialization**: every EC call is dispatched through one FIFO worker (`ec_serial`), so at most one driver call is ever in flight and hardware execution order always matches submission order; callers time out individually without wedging the pool
+- **EC serialization**: in the UI process every EC call is dispatched through one FIFO worker (`ec_serial`), so at most one driver call is ever in flight and hardware execution order always matches submission order; callers time out individually without wedging the pool. The separate `--handover` process uses its own `EcClient` and skips when another app instance is running
 - **Config**: `dirs::config_dir() / framework-crate/config.toml`
 - **Background polling**: tokio task, 200ms–2s interval (idle slowdown)
 - **UI refresh**: self-rescheduling tick (50–1000ms), idle 1s, hidden 2s
@@ -302,7 +305,7 @@ Toggling **launch at startup** on the About page registers a Windows scheduled t
 Notes:
 
 - **Enabling it requires an elevated process.** The task is registered with `RunLevel=HighestAvailable`, so the app reports a readable message instead of letting `schtasks` emit its localized access-denied text.
-- **Portable paths are allowed, with a warning.** `HighestAvailable` runs the image elevated at logon, so a copy in a user-writable folder could be replaced to gain elevation; the app warns for common locations such as Downloads/Desktop/Temp.
+- **Portable paths are allowed.** `HighestAvailable` runs the image elevated at logon, so a copy in a user-writable folder could be replaced to gain elevation; keep portable copies out of common user-writable locations such as Downloads/Desktop/Temp.
 - `schtasks` output is decoded using the OEM code page so non-English messages stay readable.
 - After creating the task the app queries it back, so success is only reported once the task is actually queryable.
 - The task document is written as UTF-16LE to the admin-only `%ProgramData%\FrameworkCrate\tasks` directory under an unpredictable hashed name, then removed. Debug/unelevated test runs use `%TEMP%`. A process killed mid-write never reaches the removal, so stale documents are cleaned up on the next run.
@@ -310,11 +313,11 @@ Notes:
 
 ## Sign-out Fan Handover
 
-Manual and curve modes pin the fan, and an elevated app does not reliably receive in-session logoff notifications, so the fan could stay pinned after sign-out. To prevent that, the app registers `FrameworkCrateHandover`, a SYSTEM scheduled task triggered by the TerminalServices LocalSessionManager event 23 (session logoff succeeded) with a 30 s delay. It runs `framework-crate.exe --handover --config <path>`, reconnects the EC, returns the fan to firmware, re-applies the configured charge limit, and appends the result to `%ProgramData%/framework-crate/handover.log`.
+Manual and curve modes pin the fan, and an elevated app does not reliably receive in-session logoff notifications, so the fan could stay pinned after sign-out. To prevent that, the app registers `FrameworkCrateHandover`, a SYSTEM scheduled task triggered by the TerminalServices LocalSessionManager event 23 (session logoff succeeded) with a 30 s delay. It runs `framework-crate.exe --handover --charge-limit <pct>`, reconnects the EC, returns the fan to firmware, re-applies the charge limit captured when the task was last refreshed, and appends the result to `%ProgramData%/framework-crate/handover.log`. Passing the limit in the action means SYSTEM never reads a user-profile config.
 
-- The task is refreshed on startup and on every fan-mode change, so a moved installation self-heals; switching the mode to **Disabled** removes it.
-- It is only registered when the executable resolves under Program Files. A SYSTEM task must not execute a binary a standard user can replace; if the app runs from a portable folder the task is skipped and the reason is written to `app.log`. Development builds can set `FRAMEWORK_CONTROL_ALLOW_UNPROTECTED_HANDOVER=1` to bypass the check.
-- The handover skips itself when any user session is active again, so a fast re-login is not clobbered.
+- The task is refreshed on startup, fan-mode changes, and charge-limit changes, so a moved installation and a changed limit self-heal; switching the mode to **Disabled** removes it. The captured limit is machine-wide: on a multi-user machine the most recent app instance to sync wins, and SYSTEM never reads any user's config.
+- It is only registered when the executable resolves under Program Files and neither the exe nor any directory up to the Program Files root grants broad-group write/delete access; an ACL that cannot be queried is treated as unsafe. A SYSTEM task must not execute a binary a standard user can replace; if the app runs from a portable folder the task is silently skipped (debug-level log only). Debug builds can set `FRAMEWORK_CONTROL_ALLOW_UNPROTECTED_HANDOVER=1` to bypass the check; release builds ignore the variable.
+- The handover skips itself when another Framework Crate instance is running in any session (including fast-user-switched or RDP-disconnected sessions), so a running app is not clobbered. If process enumeration fails, it falls back to `WTSActive` sessions.
 
 ## Logs
 
@@ -330,7 +333,7 @@ The file rotates once it grows past a size threshold, keeping `app.log.1` throug
 | `FRAMEWORK_CONTROL_CONFIG_DIR` | Overrides the config directory in debug/test builds. Must be absolute, with no `..` and no `\\?\` / `\\.\` prefix. Release builds ignore it |
 | `FRAMEWORK_ALLOW_UNKNOWN_MODULE_HASH=1` | Loads PawnIO module blobs whose hash is not pinned. Only after manual verification of a newer upstream release. Debug builds only; release builds always fail closed |
 | `FRAMEWORK_ALLOW_UNSIGNED_PAWNIO=1` | Loads the PawnIO DLL despite an Authenticode failure. For self-signed test DLLs. Debug builds only; release builds always fail closed |
-| `FRAMEWORK_CONTROL_ALLOW_UNPROTECTED_HANDOVER=1` | Registers the SYSTEM sign-out handover task from a location outside Program Files. Development only: any user who can write the exe could then run code as SYSTEM |
+| `FRAMEWORK_CONTROL_ALLOW_UNPROTECTED_HANDOVER=1` | Registers the SYSTEM sign-out handover task from a location outside Program Files. Debug builds only; release builds ignore it. Development only: any user who can write the exe could then run code as SYSTEM |
 
 </details>
 
@@ -351,7 +354,7 @@ The file rotates once it grows past a size threshold, keeping `app.log.1` throug
 - **Per-fan curves need multi-fan verification**: per-fan curves (multi-fan machines, Unified off) are covered by unit tests with a mocked EC only — no multi-fan hardware (Framework 16 / Desktop) was available to verify on-device behavior. Single-fan machines take the exact pre-existing code path.
 - **EC driver**: the Framework EC kernel driver must be installed for `framework_lib` to communicate with the hardware.
 - **Crash leaves last-applied state**: orderly quit restores firmware fan control and flushes the charge limit, but a crash or kill bypasses that path, so the EC keeps the last written fan duty until sleep, reboot, or the next launch re-asserts it.
-- **Logoff fan handover depends on a SYSTEM task**: manual/curve modes register `FrameworkCrateHandover`, which runs 30 s after sign-out and returns the fan to firmware. The app must run from Program Files to register it (a SYSTEM task must not execute a user-replaceable binary); when it cannot, the reason is written to `app.log` and the fan may stay pinned until the next launch — use **Restore Auto & Exit** in that case. In-session logoff notifications alone are still not reliable on elevated setups.
+- **Logoff fan handover depends on a SYSTEM task**: manual/curve modes register `FrameworkCrateHandover`, which runs 30 s after sign-out and returns the fan to firmware. The app must run from Program Files to register it (a SYSTEM task must not execute a user-replaceable binary); when it cannot, the task is skipped and the fan may stay pinned until the next launch — use **Restore Auto & Exit** in that case. In-session logoff notifications alone are still not reliable on elevated setups. The handover detects another app instance by process name, including in disconnected sessions; only if process enumeration fails and no session is `WTSActive` can a disconnected app be missed.
 
 <details>
 <summary><strong>CPU Power module details (PawnIO)</strong></summary>

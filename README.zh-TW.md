@@ -15,7 +15,7 @@
 
 每個 [GitHub Release](https://github.com/vinctw22/Framework-Crate/releases) 都會附上預先編譯的 Windows 執行檔 `framework-crate.exe`，release notes 會列出該版本變更。
 
-下載 `.exe` 後以管理員身分執行。PawnIO 為選用元件，只有 CPU Power 卡片需要；其他功能只要安裝 Framework EC 驅動即可運作。
+下載 `.exe` 後以管理員身分執行。PawnIO 為選用元件，只有 CPU Power 卡片需要；其他功能只要安裝 Framework EC 驅動即可運作。若要使用登出風扇交接，請把 exe 放在 Program Files；放在 Downloads／Desktop 的可攜版無法註冊 SYSTEM 工作。
 
 ## 螢幕截圖
 
@@ -73,6 +73,7 @@
 ```
 src/
   main.rs              — Iced 0.14 程式入口、boot 函式、輪替檔案日誌 sink
+  handover.rs          — SYSTEM 登出工作的 headless `--handover` 執行流程
   app/                 — App 結構、Message enum、dispatch、handler 子模組
     mod.rs             — App/AppState/Message 型別、new()/subscription()/update()/view()、update_inner dispatcher
     config.rs          — 設定相關 message handler 與 save/mutate_config helper
@@ -124,6 +125,8 @@ src/
   curve_canvas.rs      — 互動式畫布風扇曲線編輯器（拖曳點、感測器標記）
   fan_control.rs       — CurveStepper、速率限制、duty 計算
   system_info.rs       — Windows API FFI（CPU、RAM、OS、螢幕、托盤）
+    handover_task.rs   — SYSTEM 登出工作註冊 + Program Files/ACL 閘門
+    startup_task.rs    — 登入工作、受保護工作目錄、單一實例 guard
   probe.rs             — HeightProbe widget，用於動態視窗高度
   util.rs              — 時間工具、鎖輔助（read_lock、with_write_lock）、PawnIO timeout guard
   ec_serial.rs         — 單寫入者 EC dispatcher：所有 EC 驅動呼叫都經過同一個 FIFO worker，硬體執行順序永遠等於提交順序
@@ -145,7 +148,7 @@ framework_lib (CrosEc) → ec_serial (single FIFO writer) → background_task �
 ```
 
 - **硬體存取**：`framework_lib` 透過 kernel driver 直接呼叫 EC（不開子程序）
-- **EC 序列化**：每個 EC 呼叫都由同一個 FIFO worker（`ec_serial`）派送，同一時間最多一個驅動呼叫，硬體執行順序永遠等於提交順序；個別呼叫可各自 timeout，不會卡死整個 pool
+- **EC 序列化**：UI 行程內每個 EC 呼叫都由同一個 FIFO worker（`ec_serial`）派送，同一時間最多一個驅動呼叫，硬體執行順序永遠等於提交順序；個別呼叫可各自 timeout，不會卡死整個 pool。獨立的 `--handover` 行程有自己的 `EcClient`，且偵測到另一個 app 實例時會跳過
 - **設定**：`dirs::config_dir() / framework-crate/config.toml`
 - **背景輪詢**：tokio task，200ms–2s 間隔（idle 時放慢）
 - **UI 更新**：自我排程 tick（50–1000ms），idle 1s，隱藏 2s
@@ -299,7 +302,7 @@ selected_sensors = []
 備註：
 
 - **啟用需要提權程序。** 工作以 `RunLevel=HighestAvailable` 註冊；失敗時程式會顯示可讀訊息，而不是讓 `schtasks` 輸出本地化的存取拒絕文字。
-- **可攜路徑允許，但會警告。** `HighestAvailable` 會在登入時以提權執行映像；放在使用者可寫資料夾的副本可能被替換以取得提權，程式會對 Downloads／Desktop／Temp 等常見位置警告。
+- **可攜路徑允許。** `HighestAvailable` 會在登入時以提權執行映像；放在使用者可寫資料夾的副本可能被替換以取得提權，請避免把可攜版放在 Downloads／Desktop／Temp 等常見位置。
 - `schtasks` 輸出以 OEM code page 解碼，非英文訊息仍可讀。
 - 建立工作後程式會查詢回來，只有工作真的可查詢時才回報成功。
 - 工作文件以 UTF-16LE 寫到僅管理員可寫的 `%ProgramData%\FrameworkCrate\tasks`，檔名為不可預測雜湊，之後刪除。Debug／未提權測試使用 `%TEMP%`。程序若在寫入中被終止，刪除不會執行，殘留文件會在下次啟動時清理。
@@ -307,11 +310,11 @@ selected_sensors = []
 
 ## 登出風扇交接
 
-手動與曲線模式會固定風扇，而提權程式無法可靠收到工作階段內的登出通知，風扇可能在登出後維持固定。為此程式會註冊 `FrameworkCrateHandover` SYSTEM 排程工作，由 TerminalServices LocalSessionManager 事件 23（工作階段登出成功）觸發，延遲 30 秒後執行 `framework-crate.exe --handover --config <path>`：重連 EC、將風扇交還韌體、重新套用設定的充電上限，並把結果附加到 `%ProgramData%/framework-crate/handover.log`。
+手動與曲線模式會固定風扇，而提權程式無法可靠收到工作階段內的登出通知，風扇可能在登出後維持固定。為此程式會註冊 `FrameworkCrateHandover` SYSTEM 排程工作，由 TerminalServices LocalSessionManager 事件 23（工作階段登出成功）觸發，延遲 30 秒後執行 `framework-crate.exe --handover --charge-limit <pct>`：重連 EC、將風扇交還韌體、重新套用工作刷新時捕捉的充電上限，並把結果附加到 `%ProgramData%/framework-crate/handover.log`。把上限放在 action 參數裡代表 SYSTEM 不需要讀取使用者設定檔。
 
-- 啟動與每次風扇模式變更都會刷新工作，程式搬移後可自動修復；切換到 **Disabled** 會移除工作。
-- 只有執行檔解析後位於 Program Files 時才會註冊。SYSTEM 工作不得執行一般使用者可替換的執行檔；若程式從可攜資料夾執行，工作會被跳過，原因會寫入 `app.log`。開發版可用 `FRAMEWORK_CONTROL_ALLOW_UNPROTECTED_HANDOVER=1` 略過此檢查。
-- 若已有任何使用者工作階段重新登入，交接會跳過，避免覆蓋剛啟動的程式。
+- 啟動、風扇模式變更與充電上限變更都會刷新工作，程式搬移或上限改變後可自動修復；切換到 **Disabled** 會移除工作。捕捉到的上限是整台機器共用的：多使用者時以最近一次同步的 app 實例為準，SYSTEM 不會讀取任何使用者的設定檔。
+- 只有執行檔解析後位於 Program Files，且 exe 與一路到 Program Files 根目錄的每個資料夾都沒有廣泛群組的寫入／刪除權限時才會註冊；ACL 查詢失敗一律視為不安全。SYSTEM 工作不得執行一般使用者可替換的執行檔；若程式從可攜資料夾執行，工作會靜默跳過（僅 debug log）。Debug 版可用 `FRAMEWORK_CONTROL_ALLOW_UNPROTECTED_HANDOVER=1` 略過此檢查；release 版會忽略該變數。
+- 交接會先偵測是否有另一個 Framework Crate 行程在任何 session 執行（包含快速切換使用者或 RDP 斷線的 session），有就跳過，避免覆蓋正在執行的程式。若行程列舉失敗，才退回只計入 `WTSActive` 工作階段的檢查。
 
 ## 日誌
 
@@ -327,7 +330,7 @@ selected_sensors = []
 | `FRAMEWORK_CONTROL_CONFIG_DIR` | 在 debug／測試版覆寫設定目錄。必須是絕對路徑，不能含 `..` 或 `\\?\`／`\\.\` 前綴。Release 版忽略 |
 | `FRAMEWORK_ALLOW_UNKNOWN_MODULE_HASH=1` | 載入未 pin 雜湊的 PawnIO 模組 blob。僅在人工驗證較新上游版本後使用。僅 debug 版；release 一律 fail closed |
 | `FRAMEWORK_ALLOW_UNSIGNED_PAWNIO=1` | Authenticode 失敗時仍載入 PawnIO DLL，供自簽測試 DLL 使用。僅 debug 版；release 一律 fail closed |
-| `FRAMEWORK_CONTROL_ALLOW_UNPROTECTED_HANDOVER=1` | 允許從 Program Files 以外的位置註冊 SYSTEM 登出交接工作。僅供開發：任何能寫入該 exe 的使用者都可能以 SYSTEM 執行程式碼 |
+| `FRAMEWORK_CONTROL_ALLOW_UNPROTECTED_HANDOVER=1` | 允許從 Program Files 以外的位置註冊 SYSTEM 登出交接工作。僅 debug 版；release 版忽略。僅供開發：任何能寫入該 exe 的使用者都可能以 SYSTEM 執行程式碼 |
 
 </details>
 
@@ -348,7 +351,7 @@ selected_sensors = []
 - **逐風扇曲線仍需多風扇驗證**：逐風扇曲線（多風扇機種、Unified off）只有模擬 EC 的單元測試 — 沒有 Framework 16／Desktop 多風扇硬體可驗證實機行為。單風扇機種走完全相同的既有路徑。
 - **EC 驅動**：必須安裝 Framework EC kernel driver，`framework_lib` 才能與硬體通訊。
 - **崩潰會留下最後套用狀態**：正常退出會還原韌體風扇控制並 flush 充電上限；但崩潰或被強制終止會跳過該路徑，EC 會保留最後寫入的風扇 duty，直到睡眠、重新開機或下次啟動重送。
-- **登出風扇交接依賴 SYSTEM 工作**：手動／曲線模式會註冊 `FrameworkCrateHandover`，在登出 30 秒後將風扇交還韌體。程式必須位於 Program Files 才會註冊（SYSTEM 工作不得執行使用者可替換的執行檔）；無法註冊時原因會寫入 `app.log`，風扇可能在下次啟動前維持固定，此時請先使用 **Restore Auto & Exit**。提權環境下的工作階段內登出通知本身仍不可靠。
+- **登出風扇交接依賴 SYSTEM 工作**：手動／曲線模式會註冊 `FrameworkCrateHandover`，在登出 30 秒後將風扇交還韌體。程式必須位於 Program Files 才會註冊（SYSTEM 工作不得執行使用者可替換的執行檔）；無法註冊時工作會被跳過，風扇可能在下次啟動前維持固定，此時請先使用 **Restore Auto & Exit**。提權環境下的工作階段內登出通知本身仍不可靠。交接會用行程名稱偵測另一個 app 實例，包含被中斷連線的工作階段；只有在行程列舉失敗且沒有 `WTSActive` 工作階段時，才可能漏掉被中斷連線的 app。
 
 <details>
 <summary><strong>CPU Power 模組細節（PawnIO）</strong></summary>

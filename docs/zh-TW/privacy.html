@@ -45,11 +45,12 @@
 <div class="card"><strong>簡短版：</strong> Framework Crate 完全離線運作。不收集個人資料、不建立帳號、不執行分析或追蹤，除非你明確按下需要網路的按鈕，否則不會傳送任何內容。</div>
 
 <h2>裝置上儲存的資料</h2>
-<p>程式需要的資料都在你自己的電腦上，位於 <code>%APPDATA%\framework-crate</code>：</p>
+<p>程式需要的資料都留在你自己的電腦上。設定位於 <code>%APPDATA%\framework-crate</code>：</p>
 <ul class="tight">
 <li><strong>設定</strong>（<code>config.toml</code>）— 風扇曲線、充電上限、遙測、主題、CPU 功耗 profiles 與擷取的 CPU 功耗 baseline。</li>
 <li><strong>BIOS 功耗預設</strong>（<code>bios_defaults.toml</code>）— Reset 使用的原廠 CPU 功耗限制快照。</li>
 <li><strong>日誌檔</strong>（<code>app.log</code>，依大小輪替）— 用於診斷問題的本機警告／錯誤。</li>
+<li><strong>登出追蹤</strong>（<code>%ProgramData%\framework-crate\handover.log</code>）— SYSTEM 交接工作在將風扇交還韌體時寫入的本機紀錄，絕不會上傳。</li>
 </ul>
 <p>硬體讀值（溫度、風扇 RPM、電池與 PD 狀態）只在記憶體中處理，用於驅動 UI 與風扇控制，絕不會上傳。</p>
 
