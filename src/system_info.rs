@@ -33,6 +33,7 @@ pub(crate) fn to_wide_path(path: &std::path::Path) -> Vec<u16> {
 }
 
 pub use handover_task::sync_handover_task;
+pub(crate) use startup_task::ensure_handover_log_dir;
 pub use startup_task::{SingleInstanceGuard, set_startup_launch, startup_launch_enabled};
 pub use system::{
     cpu_name, display_refresh_rate, display_resolution, is_amd_cpu, is_intel_cpu, os_version,

@@ -416,15 +416,17 @@ fn current_user_id() -> Result<String, String> {
     }
 }
 
-fn known_common_app_data() -> Option<std::path::PathBuf> {
+/// Resolves a CSIDL folder through the OS rather than an environment variable,
+/// so a user-level override cannot redirect a security check.
+pub(super) fn known_folder(csidl: i32) -> Option<std::path::PathBuf> {
     use windows_sys::Win32::UI::Shell::SHGetFolderPathW;
-    const CSIDL_COMMON_APPDATA: i32 = 0x0023;
     const MAX_PATH: usize = 260;
     let mut buf = [0u16; MAX_PATH];
+    // SAFETY: the buffer is MAX_PATH UTF-16 units and the CSIDL is a constant.
     let ok = unsafe {
         SHGetFolderPathW(
             std::ptr::null_mut(),
-            CSIDL_COMMON_APPDATA,
+            csidl,
             std::ptr::null_mut(),
             0,
             buf.as_mut_ptr(),
@@ -437,6 +439,11 @@ fn known_common_app_data() -> Option<std::path::PathBuf> {
     String::from_utf16(&buf[..len])
         .ok()
         .map(std::path::PathBuf::from)
+}
+
+fn known_common_app_data() -> Option<std::path::PathBuf> {
+    const CSIDL_COMMON_APPDATA: i32 = 0x0023;
+    known_folder(CSIDL_COMMON_APPDATA)
 }
 
 fn task_dir() -> std::io::Result<std::path::PathBuf> {
@@ -455,17 +462,41 @@ fn task_dir() -> std::io::Result<std::path::PathBuf> {
 
 /// Creates an Administrators-owned directory with an admin/SYSTEM-only DACL.
 fn create_admin_directory(path: &std::path::Path) -> std::io::Result<()> {
+    create_protected_directory(path, false)
+}
+
+/// Secures `%ProgramData%\framework-crate` before the SYSTEM handover writes
+/// its trace there.
+///
+/// A standard user can create folders directly under `%ProgramData%` and can
+/// create directory junctions without elevation, so an existing leaf that is a
+/// reparse point is refused and a plain pre-created directory is re-owned and
+/// re-ACLed. Users get read/traverse (inherited by the log file); only
+/// Administrators and SYSTEM can create or replace entries.
+pub(crate) fn ensure_handover_log_dir(path: &std::path::Path) -> Result<(), String> {
+    create_protected_directory(path, true).map_err(|e| {
+        format!(
+            "cannot secure handover log directory {}: {e}",
+            path.display()
+        )
+    })
+}
+
+fn create_protected_directory(path: &std::path::Path, users_read: bool) -> std::io::Result<()> {
     use windows_sys::Win32::Foundation::GENERIC_ALL;
     use windows_sys::Win32::Security::Authorization::{SE_FILE_OBJECT, SetNamedSecurityInfoW};
     use windows_sys::Win32::Security::{
-        ACL, ACL_REVISION, AddAccessAllowedAceEx, CreateWellKnownSid, DACL_SECURITY_INFORMATION,
-        InitializeAcl, InitializeSecurityDescriptor, NO_INHERITANCE, OWNER_SECURITY_INFORMATION,
-        PROTECTED_DACL_SECURITY_INFORMATION, PSECURITY_DESCRIPTOR, PSID, SE_DACL_PROTECTED,
-        SECURITY_ATTRIBUTES, SECURITY_DESCRIPTOR, SECURITY_MAX_SID_SIZE,
-        SetSecurityDescriptorControl, SetSecurityDescriptorDacl, SetSecurityDescriptorOwner,
-        WinBuiltinAdministratorsSid, WinLocalSystemSid,
+        ACL, ACL_REVISION, AddAccessAllowedAceEx, CONTAINER_INHERIT_ACE, CreateWellKnownSid,
+        DACL_SECURITY_INFORMATION, InitializeAcl, InitializeSecurityDescriptor, NO_INHERITANCE,
+        OBJECT_INHERIT_ACE, OWNER_SECURITY_INFORMATION, PROTECTED_DACL_SECURITY_INFORMATION,
+        PSECURITY_DESCRIPTOR, PSID, SE_DACL_PROTECTED, SECURITY_ATTRIBUTES, SECURITY_DESCRIPTOR,
+        SECURITY_MAX_SID_SIZE, SetSecurityDescriptorControl, SetSecurityDescriptorDacl,
+        SetSecurityDescriptorOwner, WinBuiltinAdministratorsSid, WinBuiltinUsersSid,
+        WinLocalSystemSid,
     };
-    use windows_sys::Win32::Storage::FileSystem::CreateDirectoryW;
+    use windows_sys::Win32::Storage::FileSystem::{
+        CreateDirectoryW, FILE_GENERIC_EXECUTE, FILE_GENERIC_READ,
+    };
     use windows_sys::core::PCWSTR;
 
     enable_restore_privilege()?;
@@ -495,18 +526,52 @@ fn create_admin_directory(path: &std::path::Path) -> std::io::Result<()> {
     {
         return Err(std::io::Error::last_os_error());
     }
+    let mut users_sid = [0u8; SECURITY_MAX_SID_SIZE as usize];
+    if users_read {
+        let mut users_len = users_sid.len() as u32;
+        if unsafe {
+            CreateWellKnownSid(
+                WinBuiltinUsersSid,
+                std::ptr::null_mut(),
+                users_sid.as_mut_ptr() as PSID,
+                &mut users_len,
+            )
+        } == 0
+        {
+            return Err(std::io::Error::last_os_error());
+        }
+    }
 
     let mut acl_buf = [0u32; 64];
     let acl = acl_buf.as_mut_ptr() as *mut ACL;
     if unsafe { InitializeAcl(acl, std::mem::size_of_val(&acl_buf) as u32, ACL_REVISION) } == 0 {
         return Err(std::io::Error::last_os_error());
     }
+    // The task-XML directory keeps explicit-only ACEs (the XML files get their
+    // own DACL). The log directory lets Administrators/SYSTEM and Users
+    // inherit, so the log stays writable by SYSTEM and readable by users.
+    let inheritance = if users_read {
+        OBJECT_INHERIT_ACE | CONTAINER_INHERIT_ACE
+    } else {
+        NO_INHERITANCE
+    };
     for sid in [admin_sid.as_ptr() as PSID, system_sid.as_ptr() as PSID] {
-        if unsafe { AddAccessAllowedAceEx(acl, ACL_REVISION, NO_INHERITANCE, GENERIC_ALL, sid) }
-            == 0
-        {
+        if unsafe { AddAccessAllowedAceEx(acl, ACL_REVISION, inheritance, GENERIC_ALL, sid) } == 0 {
             return Err(std::io::Error::last_os_error());
         }
+    }
+    if users_read
+        && unsafe {
+            AddAccessAllowedAceEx(
+                acl,
+                ACL_REVISION,
+                inheritance,
+                FILE_GENERIC_READ | FILE_GENERIC_EXECUTE,
+                users_sid.as_ptr() as PSID,
+            )
+        } == 0
+    {
+        return Err(std::io::Error::last_os_error());
     }
 
     let mut sd: SECURITY_DESCRIPTOR = unsafe { std::mem::zeroed() };
@@ -535,7 +600,7 @@ fn create_admin_directory(path: &std::path::Path) -> std::io::Result<()> {
             let _ = std::fs::remove_dir(path);
             return Err(std::io::Error::new(
                 std::io::ErrorKind::PermissionDenied,
-                "task directory owner is not Administrators",
+                "protected directory owner is not Administrators",
             ));
         }
         return Ok(());
@@ -546,7 +611,7 @@ fn create_admin_directory(path: &std::path::Path) -> std::io::Result<()> {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::PermissionDenied,
                 format!(
-                    "task directory is not a plain admin directory: {}",
+                    "protected directory is a reparse point or not a directory: {}",
                     path.display()
                 ),
             ));
@@ -570,7 +635,7 @@ fn create_admin_directory(path: &std::path::Path) -> std::io::Result<()> {
         if !task_file_owner_is_administrators(path)? {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::PermissionDenied,
-                "task directory owner is not Administrators",
+                "protected directory owner is not Administrators",
             ));
         }
         return Ok(());
@@ -918,8 +983,9 @@ pub(super) fn cleanup_stale_task_xml() {
 pub(super) fn validate_task_command_path(exe: &str) -> Result<(), String> {
     validate_path_basics(exe, "exe path")?;
     // HighestAvailable runs elevated at logon: an exe in a user-writable
-    // dir (Downloads/Desktop/Temp) can be replaced to gain elevation. Warn
-    // so portable runs stay a conscious choice.
+    // dir (Downloads/Desktop/Temp) can be replaced to gain elevation. Keep
+    // this at debug level so a portable install does not emit a warning; the
+    // security trade-off is documented in the README.
     let lower = exe.to_lowercase();
     for risky in [
         "downloads",
@@ -929,38 +995,12 @@ pub(super) fn validate_task_command_path(exe: &str) -> Result<(), String> {
         "appdata\\local\\temp",
     ] {
         if lower.contains(risky) {
-            tracing::warn!(
+            tracing::debug!(
                 "startup exe is in a user-writable dir ({}); move to Program Files for HighestAvailable safety",
                 exe
             );
             break;
         }
-    }
-    Ok(())
-}
-
-/// Validates a path passed through the task action's `Arguments` element,
-/// where it is wrapped in quotes.
-///
-/// Task Scheduler starts the action with CreateProcess (no cmd.exe), so cmd
-/// metacharacters such as `&`, `|`, `;`, `%`, `(`, `)` are inert and legal in
-/// Windows profile paths (e.g. `C:\Users\Tom & Jerry\...`). Only a quote or a
-/// control character would break the command line, and a trailing backslash
-/// would escape the closing quote.
-pub(super) fn validate_task_arg_path(path: &str, label: &str) -> Result<(), String> {
-    if path.contains(['"', '\n', '\r']) {
-        return Err(format!("{label} contains invalid characters"));
-    }
-    // Block all other control characters plus bidi overrides that could hide
-    // injected text.
-    if path
-        .chars()
-        .any(|c| c.is_control() || c == '\u{202E}' || c == '\u{202D}')
-    {
-        return Err(format!("{label} contains invalid unicode"));
-    }
-    if path.ends_with('\\') {
-        return Err(format!("{label} must not end with backslash"));
     }
     Ok(())
 }

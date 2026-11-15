@@ -728,20 +728,13 @@ impl App {
         #[cfg(test)]
         let _ = bg_state;
 
-        // Reconcile the sign-out handover task with the persisted fan mode.
-        // Off the UI thread: schtasks is slow and must not block startup.
-        // Failures are only logged; the in-session session-end hook still
-        // covers graceful exits. The mode atom is re-read under the sync
-        // lock, so a mode change racing startup cannot be applied reversed.
+        // Reconcile the sign-out handover task with the persisted fan mode and
+        // charge limit. Off the UI thread: schtasks is slow and must not block
+        // startup. Failures are only logged; the in-session session-end hook
+        // still covers graceful exits. Both values are re-read under the sync
+        // lock, so a change racing startup cannot be applied reversed.
         #[cfg(not(test))]
-        {
-            let mode = app.state.fan.mode.clone();
-            std::thread::spawn(move || {
-                if let Err(e) = system_info::sync_handover_task(&mode) {
-                    warn!("handover task sync failed: {e}");
-                }
-            });
-        }
+        app.sync_handover_task_async();
 
         // Tests never start the task sync; keep the function referenced so
         // --all-targets -D warnings does not flag the handover task chain.

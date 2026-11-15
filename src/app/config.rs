@@ -58,6 +58,20 @@ fn clamp_curve_point(points: &[[u32; 2]], idx: usize, temp: u32, duty: u32) -> O
 }
 
 impl App {
+    /// Reconciles the SYSTEM handover task on a worker thread. Both the fan
+    /// mode and charge limit are read under the sync lock, so a burst of
+    /// changes can never apply an older snapshot after a newer one.
+    #[cfg(not(test))]
+    pub(crate) fn sync_handover_task_async(&self) {
+        let mode = self.state.fan.mode.clone();
+        let config = self.state.lifecycle.config.clone();
+        std::thread::spawn(move || {
+            if let Err(e) = crate::system_info::sync_handover_task(&mode, &config) {
+                warn!("handover task sync failed: {e}");
+            }
+        });
+    }
+
     pub(crate) fn handle_config_message(&mut self, message: &Message) -> Option<Task<Message>> {
         match *message {
             Message::FanModeChanged(mode) => {
@@ -76,20 +90,8 @@ impl App {
                 });
                 self.update_curve_full_points();
                 self.save_config();
-                // Manual/curve pin the fan, so the sign-out handover task
-                // must exist; disabled mode removes it. Off the UI thread
-                // (schtasks is slow); failures are only logged. The sync
-                // re-reads the mode under its lock, so a burst of mode
-                // changes cannot apply an older choice after a newer one.
                 #[cfg(not(test))]
-                {
-                    let mode = self.state.fan.mode.clone();
-                    std::thread::spawn(move || {
-                        if let Err(e) = crate::system_info::sync_handover_task(&mode) {
-                            warn!("handover task sync failed: {e}");
-                        }
-                    });
-                }
+                self.sync_handover_task_async();
                 Some(Task::none())
             }
             Message::FanDutyChanged(duty) => {
@@ -373,6 +375,28 @@ impl App {
         if let Err(e) = crate::config::save_versioned(&cfg, ver, true) {
             warn!("Failed to save config: {}", e);
         }
+        #[cfg(not(test))]
+        self.sync_handover_on_shutdown();
+    }
+
+    /// Final task refresh on quit. The charge-limit sync normally runs in the
+    /// debounced save task, so a change followed immediately by quit could
+    /// otherwise leave stale task arguments. Bounded so a wedged Task
+    /// Scheduler cannot hold the quit path indefinitely.
+    #[cfg(not(test))]
+    fn sync_handover_on_shutdown(&self) {
+        let mode = self.state.fan.mode.clone();
+        let config = self.state.lifecycle.config.clone();
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let result = crate::system_info::sync_handover_task(&mode, &config);
+            let _ = tx.send(result);
+        });
+        match rx.recv_timeout(std::time::Duration::from_secs(2)) {
+            Ok(Ok(())) => {}
+            Ok(Err(e)) => warn!("handover task shutdown sync failed: {e}"),
+            Err(_) => warn!("handover task shutdown sync timed out"),
+        }
     }
 
     /// Mutates config under write lock; caller must persist with save_config().
@@ -500,6 +524,8 @@ impl App {
         }
         self.update_curve_full_points();
         self.save_config();
+        #[cfg(not(test))]
+        self.sync_handover_task_async();
         self.reset_power_state_after_import()
     }
 

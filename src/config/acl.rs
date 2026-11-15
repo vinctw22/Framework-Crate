@@ -1,8 +1,9 @@
 // Config file ACL hardening (Windows).
 //
 // Split from config.rs: broad-group write ACE detection and removal
-// live here. Failures are warn-only; the save path treats hardening
-// as best-effort.
+// live here. The config-save path is best-effort and fail-open; the
+// `has_broad_modify_ace` variant is fail-closed because it gates registration
+// of a SYSTEM scheduled task.
 
 /// Write-like rights: writing/appending data, taking ownership, or changing
 /// the DACL all let Everyone rewrite or re-permission the file.
@@ -14,24 +15,38 @@ const WORLD_WRITE_MASK: u32 = {
     FILE_WRITE_DATA | FILE_APPEND_DATA | GENERIC_WRITE | WRITE_DAC | WRITE_OWNER
 };
 
-/// Checks the file DACL for an allow-ACE granting write-like rights to a
-/// broad SID (Everyone, Users, Authenticated Users). Returns false on any
-/// query failure (fail-open: inspection errors must not block saves).
-pub(crate) fn file_has_world_write_ace(path: &std::path::Path) -> bool {
-    use std::os::windows::ffi::OsStrExt;
-    use windows_sys::Win32::Foundation::LocalFree;
-    use windows_sys::Win32::Security::Authorization::{GetNamedSecurityInfoW, SE_FILE_OBJECT};
-    use windows_sys::Win32::Security::{
-        ACCESS_ALLOWED_ACE, ACE_HEADER, ACL, CreateWellKnownSid, DACL_SECURITY_INFORMATION, PSID,
-        SECURITY_MAX_SID_SIZE, WinAuthenticatedUserSid, WinBuiltinUsersSid, WinWorldSid,
+/// Rights that let a non-administrator replace or re-permission an object.
+///
+/// `DELETE` and `FILE_DELETE_CHILD` matter here: replacing a directory (or an
+/// exe inside it) is enough to hijack a SYSTEM task even when no data-write
+/// ACE is present.
+const BROAD_MODIFY_MASK: u32 = {
+    use windows_sys::Win32::Foundation::{GENERIC_ALL, GENERIC_WRITE};
+    use windows_sys::Win32::Storage::FileSystem::{
+        DELETE, FILE_APPEND_DATA, FILE_DELETE_CHILD, FILE_WRITE_ATTRIBUTES, FILE_WRITE_DATA,
+        FILE_WRITE_EA, WRITE_DAC, WRITE_OWNER,
     };
-    use windows_sys::Win32::System::SystemServices::ACCESS_ALLOWED_ACE_TYPE;
-    use windows_sys::core::PCWSTR;
+    FILE_WRITE_DATA
+        | FILE_APPEND_DATA
+        | FILE_WRITE_EA
+        | FILE_WRITE_ATTRIBUTES
+        | DELETE
+        | FILE_DELETE_CHILD
+        | WRITE_DAC
+        | WRITE_OWNER
+        | GENERIC_WRITE
+        | GENERIC_ALL
+};
 
-    // SIDs whose write access is dangerous: Everyone plus the broad
-    // built-in groups a per-user admin file must never grant.
-    let mut watched: Vec<(Vec<u8>, usize)> = Vec::new();
-    for well_known in [WinWorldSid, WinBuiltinUsersSid, WinAuthenticatedUserSid] {
+/// Builds the byte images of the given well-known SIDs. SIDs that cannot be
+/// created are skipped; callers that need fail-closed behavior check for an
+/// empty result.
+fn well_known_sids(
+    types: &[windows_sys::Win32::Security::WELL_KNOWN_SID_TYPE],
+) -> Vec<(Vec<u8>, usize)> {
+    use windows_sys::Win32::Security::{CreateWellKnownSid, PSID, SECURITY_MAX_SID_SIZE};
+    let mut out = Vec::with_capacity(types.len());
+    for &well_known in types {
         let mut buf = [0u8; SECURITY_MAX_SID_SIZE as usize];
         let mut len = buf.len() as u32;
         // SAFETY: buffer is SECURITY_MAX_SID_SIZE bytes, the documented maximum.
@@ -44,12 +59,33 @@ pub(crate) fn file_has_world_write_ace(path: &std::path::Path) -> bool {
             )
         };
         if ok != 0 {
-            watched.push((buf.to_vec(), len as usize));
+            out.push((buf.to_vec(), len as usize));
         }
     }
-    if watched.is_empty() {
-        return false;
-    }
+    out
+}
+
+/// Scans a DACL for an allow-ACE granting any bit in `mask` to `watched`.
+///
+/// `Ok(false)` means no matching ACE, `Ok(true)` means one was found. `Err`
+/// means the DACL could not be read or is malformed; callers that guard
+/// privileged execution must treat that as unsafe. A NULL DACL grants full
+/// access to everyone and is reported as `true` when
+/// `null_dacl_is_dangerous`.
+fn acl_grants(
+    path: &std::path::Path,
+    mask: u32,
+    watched: &[(Vec<u8>, usize)],
+    null_dacl_is_dangerous: bool,
+) -> Result<bool, String> {
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::Foundation::LocalFree;
+    use windows_sys::Win32::Security::Authorization::{GetNamedSecurityInfoW, SE_FILE_OBJECT};
+    use windows_sys::Win32::Security::{
+        ACCESS_ALLOWED_ACE, ACE_HEADER, ACL, DACL_SECURITY_INFORMATION, INHERIT_ONLY_ACE,
+    };
+    use windows_sys::Win32::System::SystemServices::ACCESS_ALLOWED_ACE_TYPE;
+    use windows_sys::core::PCWSTR;
 
     let wide: Vec<u16> = path
         .as_os_str()
@@ -71,48 +107,117 @@ pub(crate) fn file_has_world_write_ace(path: &std::path::Path) -> bool {
             &mut sd,
         )
     };
-    if err != 0 || dacl.is_null() {
+    if err != 0 || sd.is_null() {
         if !sd.is_null() {
             // SAFETY: SD was allocated by the call above.
             unsafe { LocalFree(sd) };
         }
-        return false;
+        return Err(format!(
+            "cannot read DACL for {}: {}",
+            path.display(),
+            std::io::Error::from_raw_os_error(err as i32)
+        ));
+    }
+    if dacl.is_null() {
+        // SAFETY: SD was allocated by GetNamedSecurityInfoW above.
+        unsafe { LocalFree(sd) };
+        return Ok(null_dacl_is_dangerous);
     }
     // Walk ACEs manually: the first ACE follows the 8-byte ACL header and each
     // ACE carries its own size. Bounds-checked against AclSize throughout.
     // SAFETY: dacl points to a valid ACL; sd is freed at the end.
-    unsafe {
+    let result = unsafe {
         let acl_size = (*dacl).AclSize as usize;
         let ace_count = (*dacl).AceCount as usize;
         let mut offset = std::mem::size_of::<ACL>();
+        let mut malformed = false;
         let mut hit = false;
         for _ in 0..ace_count {
             if offset + std::mem::size_of::<ACE_HEADER>() > acl_size {
+                malformed = true;
                 break;
             }
             let header = &*((dacl as *const u8).add(offset) as *const ACE_HEADER);
             let size = header.AceSize as usize;
-            if size < std::mem::size_of::<ACE_HEADER>() || offset + size > acl_size {
+            // Header + mask + a minimal SID: anything smaller cannot be a
+            // valid allow/deny ACE and is treated as a malformed DACL.
+            if size < 16 || offset + size > acl_size {
+                malformed = true;
                 break;
             }
-            if header.AceType as u32 == ACCESS_ALLOWED_ACE_TYPE {
+            if header.AceType as u32 == ACCESS_ALLOWED_ACE_TYPE
+                && (header.AceFlags as u32) & INHERIT_ONLY_ACE == 0
+            {
                 let ace = &*((dacl as *const u8).add(offset) as *const ACCESS_ALLOWED_ACE);
                 let sid = &ace.SidStart as *const u32 as *const u8;
                 // SID length is 8 header bytes plus 4 per sub-authority.
                 let sid_len = 8 + 4 * (*sid.add(1) as usize);
+                if sid_len > size - 8 {
+                    malformed = true;
+                    break;
+                }
                 let watched_hit = watched.iter().any(|(buf, len)| {
                     sid_len == *len && core::slice::from_raw_parts(sid, sid_len) == &buf[..*len]
                 });
-                if watched_hit && ace.Mask & WORLD_WRITE_MASK != 0 {
+                if watched_hit && ace.Mask & mask != 0 {
                     hit = true;
                     break;
                 }
             }
             offset += size;
         }
-        LocalFree(sd);
-        hit
+        if malformed {
+            Err(format!("malformed DACL for {}", path.display()))
+        } else {
+            Ok(hit)
+        }
+    };
+    // SAFETY: SD was allocated by GetNamedSecurityInfoW above.
+    unsafe { LocalFree(sd) };
+    result
+}
+
+/// Checks the file DACL for an allow-ACE granting write-like rights to a
+/// broad SID (Everyone, Users, Authenticated Users). Returns false on any
+/// query failure (fail-open: inspection errors must not block saves).
+fn file_has_world_write_ace(path: &std::path::Path) -> bool {
+    use windows_sys::Win32::Security::{WinAuthenticatedUserSid, WinBuiltinUsersSid, WinWorldSid};
+    let watched = well_known_sids(&[WinWorldSid, WinBuiltinUsersSid, WinAuthenticatedUserSid]);
+    if watched.is_empty() {
+        return false;
     }
+    acl_grants(path, WORLD_WRITE_MASK, &watched, false).unwrap_or(false)
+}
+
+/// Fail-closed check for paths that a SYSTEM task will execute.
+///
+/// Unlike [`file_has_world_write_ace`], a query failure or a malformed DACL is
+/// an error, and a NULL DACL counts as broad access. Watched SIDs include
+/// Interactive and Remote Desktop Users in addition to Everyone, Users and
+/// Authenticated Users, and the mask includes delete rights because replacing
+/// any directory in the chain is enough to replace the executable.
+pub(crate) fn has_broad_modify_ace(path: &std::path::Path) -> Result<bool, String> {
+    use windows_sys::Win32::Security::{
+        WinAuthenticatedUserSid, WinBuiltinRemoteDesktopUsersSid, WinBuiltinUsersSid,
+        WinInteractiveSid, WinWorldSid,
+    };
+    const WATCHED: [windows_sys::Win32::Security::WELL_KNOWN_SID_TYPE; 5] = [
+        WinWorldSid,
+        WinBuiltinUsersSid,
+        WinAuthenticatedUserSid,
+        WinInteractiveSid,
+        WinBuiltinRemoteDesktopUsersSid,
+    ];
+    let watched = well_known_sids(&WATCHED);
+    if watched.len() != WATCHED.len() {
+        // Partial resolution would silently skip a group; fail closed.
+        return Err(format!(
+            "cannot build all well-known SIDs for ACL check ({} of {})",
+            watched.len(),
+            WATCHED.len()
+        ));
+    }
+    acl_grants(path, BROAD_MODIFY_MASK, &watched, true)
 }
 
 /// Warns if the config file at `path` may be world-writable.
@@ -400,6 +505,49 @@ mod tests {
         assert!(
             file_has_world_write_ace(&path),
             "Users write ACE must be detected"
+        );
+    }
+
+    #[test]
+    fn broad_modify_watched_sids_all_resolve() {
+        use windows_sys::Win32::Security::{
+            WinAuthenticatedUserSid, WinBuiltinRemoteDesktopUsersSid, WinBuiltinUsersSid,
+            WinInteractiveSid, WinWorldSid,
+        };
+        let types = [
+            WinWorldSid,
+            WinBuiltinUsersSid,
+            WinAuthenticatedUserSid,
+            WinInteractiveSid,
+            WinBuiltinRemoteDesktopUsersSid,
+        ];
+        assert_eq!(well_known_sids(&types).len(), types.len());
+    }
+
+    #[test]
+    fn broad_modify_check_fails_closed_for_missing_path() {
+        // A path the caller cannot inspect must never be reported as safe:
+        // this check guards SYSTEM task registration.
+        let dir = tempfile::tempdir().unwrap();
+        assert!(has_broad_modify_ace(&dir.path().join("missing")).is_err());
+    }
+
+    #[test]
+    fn broad_modify_detects_everyone_full_control() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("broad.toml");
+        std::fs::write(&path, "x = 1").unwrap();
+        let grant = std::process::Command::new("icacls")
+            .arg(&path)
+            .args(["/grant", "Everyone:F"])
+            .output();
+        let Ok(out) = grant else { return };
+        if !out.status.success() {
+            return;
+        }
+        assert!(
+            has_broad_modify_ace(&path).expect("ACL query"),
+            "Everyone:F must be rejected before a SYSTEM task uses the path"
         );
     }
 }

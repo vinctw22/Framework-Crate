@@ -72,17 +72,17 @@ async fn apply_battery_settings(cfg: &Config, state: &AppState) -> bool {
 
 pub fn spawn(mut config_rx: watch::Receiver<(Arc<Config>, u64)>, state: AppState) {
     tokio::spawn(async move {
-        let mut last_battery: Option<BatteryKey>;
-
         // Apply persisted charge limit once EC is ready; retry until available or shutdown.
-        {
-            let (cfg, _ver) = config_rx.borrow().clone();
-            let key = battery_key(&cfg);
-            last_battery = Some(key);
-            // Keep out of sync if apply failed so next change retries.
-            if key.is_some() && !apply_battery_when_ready(&cfg, &state).await {
-                last_battery = None;
-            }
+        let (initial_cfg, _ver) = config_rx.borrow().clone();
+        let initial_key = battery_key(&initial_cfg);
+        // The startup path registers the task; only later limit changes need
+        // another sync. The save task is the debounce point, so dragging the
+        // charge-limit slider does not run schtasks on every step.
+        let mut last_handover_key = initial_key;
+        let mut last_battery: Option<BatteryKey> = Some(initial_key);
+        // Keep out of sync if apply failed so next change retries.
+        if initial_key.is_some() && !apply_battery_when_ready(&initial_cfg, &state).await {
+            last_battery = None;
         }
 
         // Debounce changes to avoid redundant disk writes.
@@ -152,6 +152,20 @@ pub fn spawn(mut config_rx: watch::Receiver<(Arc<Config>, u64)>, state: AppState
             .unwrap_or_else(|e| warn!("config save task panicked: {}", e));
 
             let key = battery_key(&cfg_for_battery);
+            // Refresh the SYSTEM task's captured charge limit only after the
+            // debounced save, not on every slider step.
+            if last_handover_key != key {
+                last_handover_key = key;
+                let mode = state.fan.mode.clone();
+                let config = state.lifecycle.config.clone();
+                // Detached: the EC charge-limit apply below must not wait for
+                // Task Scheduler; schtasks itself is bounded to 5 s.
+                std::thread::spawn(move || {
+                    if let Err(e) = crate::system_info::sync_handover_task(&mode, &config) {
+                        warn!("handover task sync failed: {e}");
+                    }
+                });
+            }
             if last_battery.as_ref() != Some(&key) {
                 let applied = apply_battery_settings(&cfg_for_battery, &state).await;
                 last_battery = apply_battery_state(key, applied);
