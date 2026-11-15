@@ -432,7 +432,7 @@ cargo run --release
 
 This project is developed with AI coding agents (pair-programming / review / refactor assistance). Design decisions, hardware behavior, and releases are reviewed and owned by the maintainer.
 
-MSRV: Rust **1.99.1** (verified with `cargo +1.99.1 check --locked --all-targets`).
+MSRV: Rust **1.99.1** (verified by the CI `msrv` job with `cargo +1.99.1 check --locked --all-targets`). Normal development and release builds use the pinned **1.100.0** toolchain from `rust-toolchain.toml`.
 
 ```bash
 cargo fmt --check

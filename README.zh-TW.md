@@ -427,7 +427,7 @@ cargo run --release
 
 本專案以 AI coding agent 協助開發（pair-programming／review／refactor）。設計決策、硬體行為與 release 由維護者審查與負責。
 
-MSRV：Rust **1.99.1**（以 `cargo +1.99.1 check --locked --all-targets` 驗證）。
+MSRV：Rust **1.99.1**（由 CI 的 `msrv` job 以 `cargo +1.99.1 check --locked --all-targets` 驗證）。一般開發與 release build 使用 `rust-toolchain.toml` 釘住的 **1.100.0**。
 
 ```bash
 cargo fmt --check

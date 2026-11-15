@@ -34,6 +34,13 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # pinned action
+        with:
+          # Keep in sync with rust-toolchain.toml so CodeQL autobuild does not
+          # silently use the runner's current stable.
+          toolchain: 1.100.0
+
       - name: Initialize CodeQL
         uses: github/codeql-action/init@a3d1b77a1ba1550fbb5c74db1dc3a11f4a481126 # v3
         with:

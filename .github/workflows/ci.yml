@@ -39,8 +39,9 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # pinned action
         with:
-          # Pinned: stable 1.100 added clippy::needless_bool and turned CI red
-          # without a code change. Bump deliberately, not implicitly.
+          # Keep in sync with rust-toolchain.toml. Pinned: stable 1.100 added
+          # clippy::needless_bool and turned CI red without a code change.
+          # Bump deliberately, not implicitly.
           toolchain: 1.100.0
 
       - name: Cache Cargo dependencies
@@ -83,15 +84,19 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Install MSRV toolchain
-        uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # pinned action
         with:
+          # Overrides rust-toolchain.toml on purpose: this job verifies the
+          # MSRV from Cargo.toml, while normal builds use the pinned channel.
           toolchain: 1.99.1
 
       - name: Cache Cargo dependencies
         uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
 
       - name: Check MSRV
-        run: cargo check --locked --all-targets
+        # `+1.99.1` overrides rust-toolchain.toml; without it cargo would use
+        # the pinned build channel and this job would not test the MSRV.
+        run: cargo +1.99.1 check --locked --all-targets
 
   release:
     needs: [build-and-test, msrv]
