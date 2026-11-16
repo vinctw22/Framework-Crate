@@ -6,6 +6,7 @@ compile_error!("Framework Crate is Windows-only");
 
 mod app;
 mod background_task;
+mod cleanup;
 mod cli;
 mod config;
 mod config_save_task;
@@ -429,6 +430,12 @@ fn app_style(app: &App, theme: &iced::Theme) -> iced::theme::Style {
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
+    // Headless hardware restore launched by the uninstaller. Runs before the
+    // single-instance mutex and before any UI/tracing setup.
+    if args.iter().any(|a| a == "--uninstall-cleanup") {
+        fallback_log("uninstall-cleanup: invoked");
+        std::process::exit(cleanup::run());
+    }
     // Headless sign-out handover launched by the FrameworkCrateHandover
     // task as SYSTEM. Runs before the single-instance mutex (the app may be
     // running in another session) and before any UI/tracing setup.

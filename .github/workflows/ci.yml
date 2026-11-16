@@ -121,10 +121,34 @@ jobs:
 
       - name: Install Inno Setup
         shell: pwsh
-        # Pinned deliberately, like the Rust toolchain. 6.7.1 is the current
-        # Chocolatey package and supports ArchitecturesInstallIn64BitMode=
-        # x64compatible.
-        run: choco install innosetup --version=6.7.1 -y --no-progress
+        # Pin the official 6.7.3 installer and verify its SHA256. Chocolatey
+        # still ships 6.7.1 as of this change.
+        run: |
+          $version = "6.7.3"
+          $installer = Join-Path $env:TEMP "innosetup-$version.exe"
+          $url = "https://github.com/jrsoftware/issrc/releases/download/is-6_7_3/innosetup-6.7.3.exe"
+          $expected = "9C73C3BAE7ED48D44112A0F48E66742C00090BDB5BEF71D9D3C056C66E97B732"
+          Invoke-WebRequest -Uri $url -OutFile $installer
+          $hash = (Get-FileHash -LiteralPath $installer -Algorithm SHA256).Hash
+          if ($hash -ne $expected) {
+            throw "Inno Setup checksum mismatch: $hash"
+          }
+          Start-Process -FilePath $installer -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/SP-' -Wait
+          $iscc = $null
+          for ($i = 0; $i -lt 30 -and -not $iscc; $i++) {
+            $iscc = @(
+              "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe",
+              "$env:ProgramFiles\Inno Setup 6\ISCC.exe",
+              "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe",
+              "$env:LOCALAPPDATA\Inno Setup 6\ISCC.exe"
+            ) | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
+            if (-not $iscc) {
+              $iscc = Get-Command ISCC.exe -ErrorAction SilentlyContinue |
+                Select-Object -First 1 -ExpandProperty Source
+            }
+            if (-not $iscc) { Start-Sleep -Seconds 1 }
+          }
+          if (-not $iscc) { throw "ISCC.exe not found after Inno Setup install" }
 
       - name: Build installer
         shell: pwsh
@@ -158,6 +182,7 @@ jobs:
           AppVersion={#MyAppVersion}
           AppVerName={#MyAppName} {#MyAppVersion}
           AppPublisher={#MyAppPublisher}
+          AppCopyright=Copyright (c) 2026 Vincent Chang
           AppPublisherURL={#MyAppURL}
           AppSupportURL={#MyAppURL}/issues
           AppUpdatesURL={#MyAppURL}/releases
@@ -185,6 +210,7 @@ jobs:
           VersionInfoProductName={#MyAppName}
           VersionInfoProductVersion={#MyAppVersion}
           VersionInfoCompany={#MyAppPublisher}
+          VersionInfoCopyright=Copyright (c) 2026 Vincent Chang
           VersionInfoDescription={#MyAppName} installer
           LicenseFile=LICENSE
 
@@ -204,10 +230,15 @@ jobs:
           Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent runascurrentuser
 
           [UninstallRun]
+          ; Restore hardware defaults before the app files are removed. The
+          ; uninstaller is elevated, and AppMutex keeps the app closed here.
+          Filename: "{app}\{#MyAppExeName}"; Parameters: "--uninstall-cleanup"; Flags: runhidden waituntilterminated; RunOnceId: "RestoreHardwareDefaults"
           Filename: "{sys}\schtasks.exe"; Parameters: "/Delete /TN ""FrameworkCrateHandover"" /F"; Flags: runhidden; RunOnceId: "DelHandoverTask"
           Filename: "{sys}\schtasks.exe"; Parameters: "/Delete /TN ""FrameworkCrate"" /F"; Flags: runhidden; RunOnceId: "DelStartupTask"
 
           [UninstallDelete]
+          ; Machine-wide artifacts only; the per-user config under %APPDATA%
+          ; (including config.toml and bios_defaults.toml) is preserved.
           Type: filesandordirs; Name: "{commonappdata}\framework-crate"
           Type: filesandordirs; Name: "{commonappdata}\FrameworkCrate"
 
@@ -216,15 +247,15 @@ jobs:
           '@
           Set-Content -Path framework-crate.iss -Value $iss -Encoding utf8
 
-          $iscc = Get-Command ISCC.exe -ErrorAction SilentlyContinue |
-            Select-Object -First 1 -ExpandProperty Source
+          $iscc = @(
+            "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe",
+            "$env:ProgramFiles\Inno Setup 6\ISCC.exe",
+            "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe",
+            "$env:LOCALAPPDATA\Inno Setup 6\ISCC.exe"
+          ) | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
           if (-not $iscc) {
-            $iscc = @(
-              "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe",
-              "$env:ProgramFiles\Inno Setup 6\ISCC.exe",
-              "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe",
-              "$env:LOCALAPPDATA\Inno Setup 6\ISCC.exe"
-            ) | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
+            $iscc = Get-Command ISCC.exe -ErrorAction SilentlyContinue |
+              Select-Object -First 1 -ExpandProperty Source
           }
           if (-not $iscc) { throw "ISCC.exe not found; Inno Setup install failed" }
 
@@ -270,7 +301,7 @@ jobs:
           PackageUrl: https://github.com/vinctw22/Framework-Crate
           License: MIT
           LicenseUrl: https://github.com/vinctw22/Framework-Crate/blob/master/LICENSE
-          Copyright: Copyright (c) Vincent Chang
+          Copyright: Copyright (c) 2026 Vincent Chang
           ShortDescription: Framework laptop fan control and telemetry GUI
           Description: >-
             Framework Crate is a Windows tray application for Framework laptops. It

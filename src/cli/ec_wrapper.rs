@@ -480,6 +480,8 @@ pub trait EcHw: Send + Sync {
     fn kblight_set(&self, percent: u32) -> Result<(), String>;
     fn fp_led_level_set(&self, level: &str) -> Result<(), String>;
     fn charge_limit_set(&self, min_pct: u8, max_pct: u8) -> Result<(), String>;
+    /// Restores the EC/BIOS charge limit instead of applying an app value.
+    fn charge_limit_restore(&self) -> Result<(), String>;
     fn pd_ports(&self) -> SmallVec<[UsbCPort; 4]>;
     /// Liveness ping: cheap EC echo used as a tiebreaker before tearing
     /// down the client after repeated read failures.
@@ -593,6 +595,13 @@ impl EcClient {
         ec.check_mem_magic()
             .map_err(|e| format!("EC initialization failed: {:?}", e))?;
         Ok(Self { ec })
+    }
+
+    /// Reads the EC charge limit (min, max) for cleanup diagnostics.
+    pub fn charge_limit_get(&self) -> Result<(u8, u8), String> {
+        self.ec
+            .get_charge_limit()
+            .map_err(|e| format!("Failed to read charge limit: {:?}", e))
     }
 }
 
@@ -862,6 +871,24 @@ impl EcHw for EcClient {
             "Charge limit write failed: wrote {}%, read back {:?}",
             max_pct, last_readback
         ))
+    }
+
+    fn charge_limit_restore(&self) -> Result<(), String> {
+        use framework_lib::chromium_ec::CrosEcDriver;
+        use framework_lib::chromium_ec::command::EcCommands;
+
+        // CHG_LIMIT_DISABLE: clear the host-set cap and BBRAM value so the EC
+        // charge manager (and the BIOS setting on the next boot) takes over.
+        // 0x7F is only the EC's RAM sentinel, not a host command mode.
+        const CHG_LIMIT_DISABLE: u8 = 0x01;
+        self.ec
+            .send_command(
+                EcCommands::ChargeLimitControl as u16,
+                0,
+                &[CHG_LIMIT_DISABLE, 0, 0],
+            )
+            .map_err(|e| format!("Failed to restore charge limit: {:?}", e))?;
+        Ok(())
     }
 
     fn pd_ports(&self) -> SmallVec<[UsbCPort; 4]> {
@@ -1269,6 +1296,11 @@ pub(crate) mod tests {
 
         fn charge_limit_set(&self, min_pct: u8, max_pct: u8) -> Result<(), String> {
             self.record(format!("charge_limit_set({min_pct},{max_pct})"));
+            self.fail_write().map_or(Ok(()), Err)
+        }
+
+        fn charge_limit_restore(&self) -> Result<(), String> {
+            self.record("charge_limit_restore".to_string());
             self.fail_write().map_or(Ok(()), Err)
         }
 

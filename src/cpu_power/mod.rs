@@ -312,6 +312,23 @@ impl CpuPowerState {
         *crate::util::read_lock(&self.bios)
     }
 
+    /// Restores the persisted factory PL1/PL2 snapshot. Used by the
+    /// uninstaller before the app files are removed.
+    pub fn restore_persisted_bios_defaults() -> Result<(), String> {
+        match load_persisted_bios_defaults() {
+            PersistedBios::Loaded(defaults) => write_bios_defaults(&defaults),
+            PersistedBios::Missing => {
+                Err("bios_defaults.toml not found; CPU power left unchanged".to_string())
+            }
+            PersistedBios::Unusable => {
+                Err("bios_defaults.toml is unusable; CPU power left unchanged".to_string())
+            }
+            PersistedBios::Unavailable => {
+                Err("config directory unavailable; CPU power left unchanged".to_string())
+            }
+        }
+    }
+
     pub fn snapshot(&self) -> Arc<CpuPowerInfo> {
         crate::util::read_lock(&self.info).clone()
     }
