@@ -46,7 +46,7 @@
 <ul class="tight">
 <li><strong>Fan curve coordinates.</strong> Direct canvas drag editing keeps points stable and the cached rendering invalidates on content changes (v0.3.0).</li>
 <li><strong>USB-C vs USB-A classification.</strong> Ports that ever reported a Sink role stay classified as USB-C, so plugging a device into an expansion-card port no longer flips the type (v0.3.0).</li>
-<li><strong>Sleep/hibernate fan control.</strong> Resume resets the EC client and curve stepper, re-asserts fan duty every 30s, and a wall-clock jump fallback covers missed resume events (v0.3.0, hardened in v0.9.0).</li>
+<li><strong>Sleep/hibernate fan control.</strong> Resume resets the EC client and curve stepper and re-asserts fan duty every 30s, while a wall-clock jump fallback covers missed resume events (v0.3.0, hardened in v0.9.0).</li>
 <li><strong>MMIO mirror is read-only by design.</strong> The official Intel MCHBAR module exposes reads only, so Apply writes MSR 0x610; the mirror is still used for display and the effective <code>min(MSR, MMIO)</code> estimate. MSR writes are sufficient for the app's CPU power control.</li>
 <li><strong>Logoff fan handover.</strong> Manual and curve modes register the SYSTEM <code>FrameworkCrateHandover</code> task triggered by LocalSessionManager event 23. It runs 30 s after sign-out, returns the fan to firmware, reapplies the captured charge limit, and appends the result to <code>%ProgramData%\framework-crate\handover.log</code>.</li>
 </ul>
@@ -57,7 +57,7 @@
 <li><strong>Tested platform is narrow.</strong> Only Intel Core Ultra Series 1 (Meteor Lake) Framework laptops are tested; the Framework EC kernel driver must be installed.</li>
 <li><strong>Per-fan curves lack multi-fan verification.</strong> Covered by mocked unit tests only — no Framework 16 / Desktop hardware was available. Single-fan machines use the exact pre-existing code path.</li>
 <li><strong>Crash keeps the last state.</strong> Orderly quit restores firmware fan control and flushes the charge limit, but a crash or kill bypasses that path: the EC keeps the last written fan duty until sleep, reboot, the next launch, or a later sign-out (the SYSTEM handover task restores firmware control when registered).</li>
-<li><strong>Sign-out handover requires a Program Files install.</strong> Portable copies outside Program Files cannot register the SYSTEM task; install the exe under Program Files. The task captures the charge limit from the most recent app instance, so on a multi-user machine the last synced value wins.</li>
+<li><strong>Sign-out fan handover needs the installer.</strong> Portable copies cannot register the SYSTEM task, so they do not restore the fan at sign-out. The task also reapplies the charge limit captured at the last app sync; on a multi-user machine, the latest value wins.</li>
 <li><strong>HDMI/DP cards without DP-alt may be mislabeled.</strong> Port type is inferred from PD state; cards that omit DP-alt mode while drawing ~3–5 W can show the wrong label. Ports Debug Mode on the About page shows the raw role/watts; report a wrong label with the <a href="https://github.com/vinctw22/Framework-Crate/issues/new?template=usb-port-report.yml">USB port report template</a>.</li>
 </ul>
 

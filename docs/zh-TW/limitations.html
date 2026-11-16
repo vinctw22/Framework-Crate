@@ -44,10 +44,10 @@
 
 <h2>已解決</h2>
 <ul class="tight">
-<li><strong>風扇曲線座標。</strong> 改為畫布直接拖曳，點保持穩定，快取渲染會依內容變更失效（v0.3.0）。</li>
+<li><strong>風扇曲線座標。</strong> 改為在畫布上直接拖曳，點保持穩定，快取渲染會依內容變更失效（v0.3.0）。</li>
 <li><strong>USB-C 與 USB-A 分類。</strong> 曾回報 Sink role 的連接埠會固定為 USB-C，插拔擴充卡上的裝置不再翻轉類型（v0.3.0）。</li>
-<li><strong>睡眠／休眠風扇控制。</strong> Resume 會重置 EC client 與 curve stepper、每 30 秒重送 fan duty，並以 wall-clock jump fallback 涵蓋漏掉的 resume 事件（v0.3.0，v0.9.0 強化）。</li>
-<li><strong>MMIO mirror 設計上唯讀。</strong> 官方 Intel MCHBAR 模組只提供讀取，因此 Apply 只寫 MSR 0x610；mirror 仍用於顯示與 <code>min(MSR, MMIO)</code> 有效值估計。MSR 寫入已足夠本程式的 CPU 功耗控制。</li>
+<li><strong>睡眠／休眠風扇控制。</strong> Resume 會重置 EC client 與 curve stepper，每 30 秒重送 fan duty，並以 wall-clock jump fallback 涵蓋漏掉的 resume 事件（v0.3.0，v0.9.0 強化）。</li>
+<li><strong>MMIO mirror 設計上唯讀。</strong> 官方 Intel MCHBAR 模組只提供讀取，因此 Apply 只寫 MSR 0x610；mirror 仍用於顯示與 <code>min(MSR, MMIO)</code> 有效值估計。MSR 寫入已足以滿足本程式的 CPU 功耗控制。</li>
 <li><strong>登出風扇交接。</strong> 手動與曲線模式會註冊 SYSTEM <code>FrameworkCrateHandover</code> 工作，由 LocalSessionManager 事件 23 觸發。登出 30 秒後將風扇交還韌體、重新套用捕捉到的充電上限，並把結果附加到 <code>%ProgramData%\framework-crate\handover.log</code>。</li>
 </ul>
 
@@ -57,12 +57,12 @@
 <li><strong>測試平台有限。</strong> 只在 Intel Core Ultra Series 1（Meteor Lake）Framework 筆電測試；必須安裝 Framework EC kernel driver。</li>
 <li><strong>逐風扇曲線缺少多風扇驗證。</strong> 只有模擬 EC 的單元測試 — 沒有 Framework 16／Desktop 硬體。單風扇機種走完全相同的既有路徑。</li>
 <li><strong>崩潰會保留最後狀態。</strong> 正常退出會還原韌體風扇控制並 flush 充電上限；崩潰或強制終止會跳過該路徑，EC 會保留最後寫入的 fan duty，直到睡眠、重開機、下次啟動，或下一次登出（已註冊 SYSTEM 交接工作時會還原韌體控制）。</li>
-<li><strong>登出交接需要 Program Files 安裝。</strong> 放在 Program Files 以外的可攜版無法註冊 SYSTEM 工作，請把 exe 安裝到 Program Files。工作會捕捉最近一次 app 實例的充電上限，因此多使用者機器上以最後同步的值為準。</li>
+<li><strong>登出風扇交接需要安裝程式。</strong> 可攜版無法註冊 SYSTEM 工作，登出時不會還原風扇。工作也會重新套用 app 最後同步的充電上限；多使用者機器上以最新值為準。</li>
 <li><strong>沒有 DP-alt 的 HDMI/DP 卡可能誤標。</strong> 連接埠類型由 PD 狀態推斷；省略 DP-alt 又消耗 ~3–5 W 的卡可能顯示錯誤標籤。About 頁的 Ports Debug Mode 可看原始 role／watts；請用 <a href="https://github.com/vinctw22/Framework-Crate/issues/new?template=usb-port-report.yml">USB port 回報表單</a> 回報錯誤標籤。</li>
 </ul>
 
 <footer>
-<p>Framework Crate by Vincent Chang · MIT 授權 · © <span id="year">2026</span> · <a href="privacy.html">隱私</a> · <a href="license.html">授權</a> · <a href="security.html">安全性</a> · <a href="limitations.html">Limitations</a> · <a href="https://github.com/vinctw22/Framework-Crate">GitHub</a></p>
+<p>Framework Crate by Vincent Chang · MIT 授權 · © <span id="year">2026</span> · <a href="privacy.html">隱私</a> · <a href="license.html">授權</a> · <a href="security.html">安全性</a> · <a href="limitations.html">限制</a> · <a href="https://github.com/vinctw22/Framework-Crate">GitHub</a></p>
 </footer>
 <script>document.getElementById("year").textContent = new Date().getFullYear();</script>
 </div>

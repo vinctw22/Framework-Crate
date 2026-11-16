@@ -13,7 +13,7 @@ Inspired by [ozturkkl/framework-control](https://github.com/ozturkkl/framework-c
 
 ## Downloads
 
-Each [GitHub Release](https://github.com/vinctw22/Framework-Crate/releases) includes the per-machine installer `FrameworkCrate-Setup-<version>.exe` and a portable `framework-crate.exe`. The installer is recommended: it places the app under `C:\Program Files\Framework Crate` and adds an uninstall entry in Windows Settings. The release notes list what changed in that version.
+Each [GitHub Release](https://github.com/vinctw22/Framework-Crate/releases) includes the installer `FrameworkCrate-Setup-<version>.exe` and a portable `framework-crate.exe`. The installer is recommended: it installs for all users to `C:\Program Files\Framework Crate`; you can uninstall it from Windows Settings. The release notes list what changed in that version.
 
 Run the installer, or start the portable `.exe` as administrator. PawnIO is optional and only needed for the CPU Power card; everything else works with the Framework EC driver alone. To use the sign-out fan handover, use the installer or keep the exe under Program Files: a portable copy in Downloads/Desktop cannot register the SYSTEM task. Build details are in [the release workflow](.github/workflows/ci.yml).
 
@@ -45,10 +45,10 @@ Run the installer, or start the portable `.exe` as administrator. PawnIO is opti
 
 ## Features
 
-> Note: 0.9.7 adds Intel CPU package power telemetry (MSR energy counters), the probe tool, and keeps the 0.9.6 AMD RyzenSMU support and review fixes.
+> Note: 0.9.7 adds Intel CPU package power telemetry (MSR energy counters) and the probe tool while keeping the 0.9.6 AMD RyzenSMU support and review fixes.
 
 - **Fan Control** — Auto (firmware), manual (0–100% duty, optional per-fan; at or above 95°C duty is floored at 90%), and curve mode with draggable points on a canvas (default 5 points, hysteresis, and rate limiting; live sensor markers shown on the curve; optional per-fan curves on multi-fan machines via the Unified switch; calibration wizard measures per-fan RPM tables for accurate ramp seeding)
-- **Battery Management** — Maximum charge limit (25–100%) with enable/disable toggle; saved limit is applied on startup. Health uses last-full / design capacity. Details shows charger voltage/input on AC plus smart-battery data (per-cell voltages, pack temperature, safety alerts) when readable
+- **Battery Management** — Maximum charge limit (25–100%) with enable/disable toggle; saved limit is applied on startup. Health uses last-full / design capacity. The Details section shows charger voltage/input on AC plus smart-battery data (per-cell voltages, pack temperature, safety alerts) when readable
 - **Live Telemetry** — Real-time temperature chart (selectable 15/30/60s window, default 30s), per-sensor display with colored indicators, and fan RPM in the header
 - **Misc Panel** — Camera/mic privacy switch states, keyboard backlight slider, fingerprint LED level, and USB-C / HDMI / DP port classification inferred from PD state
 - **CPU Power** — Intel: read/write PL1/PL2 via PawnIO (optional; SHA-256 verified module download); live turbo readout (current/limit GHz) when readable; original factory limits are saved on the first run while on AC for `Reset`. `Apply` saves the selected **AC** or **Battery** profile; while "Keep power limits applied" is enabled on the About page (persisted across launches), the matching profile is applied at startup and on every AC↔battery change. Writes go to MSR 0x610 only: the official IntelMCHBAR module is read-only, so the MMIO mirror is displayed but never written. Writes are capped per model (Laptop 12 → 40W, 13 → 70W, 16 → 100W, Desktop → 120W), require ≥5W when enabled, and require PL1 ≤ PL2. **AMD (experimental)**: a RyzenSMU card shows code name, SMU version, STAPM/PPT Fast/PPT Slow and Tctl from the PM table; AC/Battery profiles and the keep-alive toggle now work the same way as Intel. Writes require the explicit experimental opt-in and still need community hardware validation.
@@ -56,7 +56,7 @@ Run the installer, or start the portable `.exe` as administrator. PawnIO is opti
 - **Settings Backup** — Export settings to a file (native save dialog, machine-stamped) and import them back; strict validation rejects unknown fields and version mismatches, and a different chassis size is refused outright
 - **System Tray** — Minimize to tray, tray icon with context menu (Show / Quit) and hover tooltip with the current temperature, icon restored automatically if Explorer restarts
 - **Launch at Startup** — Registers a per-user logon task so the tray app comes back after a reboot. The task document is generated in-process and handed to `schtasks /Create /XML`; the settings that matter (unlimited execution limit, battery conditions cleared, restart on failure) are asserted by tests without needing elevation
-- **Sign-out Fan Handover** — In manual or curve mode, registers a SYSTEM task (`FrameworkCrateHandover`) that runs at sign-out, returns the fan to firmware control, and re-applies the configured charge limit; results are appended to `%ProgramData%/framework-crate/handover.log`. The task is only registered when the app runs from Program Files (a SYSTEM task must never execute a user-replaceable exe); switching the fan mode to Disabled removes it
+- **Sign-out Fan Handover** — In manual or curve mode, registers a SYSTEM task (`FrameworkCrateHandover`) that runs at sign-out, returns the fan to firmware control, and re-applies the configured charge limit; results are appended to `%ProgramData%/framework-crate/handover.log`. The task is only registered when the app is installed under Program Files (a SYSTEM task must never execute a user-replaceable exe); switching the fan mode to Disabled removes it
 - **File Logging** — Warnings and errors are written to `%APPDATA%/framework-crate/app.log` with size-based rotation, because a logon-launched process has no console to print them to
 
 ## Requirements
@@ -104,7 +104,7 @@ src/
     acl.rs             — DACL hardening (broad-group write ACE detection/removal)
     io.rs              — Load, versioned save, atomic replace, corrupt backup
     strict.rs          — Strict import/export, unknown-field rejection, machine check
-  config_save_task.rs  — Debounced config save (100ms) and applies battery settings
+  config_save_task.rs  — Debounced config save (100ms) that also applies battery settings
   background_task/     — EC polling loop, fan control, expansion/PD scans
     mod.rs             — Spawn loop, refresh_all_data, shared constants
     helpers.rs         — Idle, AC transition, PD history, thermal sampling helpers
@@ -150,7 +150,7 @@ framework_lib (CrosEc) → ec_serial (single FIFO writer) → background_task �
 ```
 
 - **Hardware access**: The `framework_lib` crate calls the EC directly via the kernel driver (no subprocess)
-- **EC serialization**: in the UI process every EC call is dispatched through one FIFO worker (`ec_serial`), so at most one driver call is ever in flight and hardware execution order always matches submission order; callers time out individually without wedging the pool. The separate `--handover` process uses its own `EcClient` and skips when another app instance is running
+- **EC serialization**: in the UI process every EC call is dispatched through one FIFO worker (`ec_serial`), so at most one driver call is ever in flight and hardware execution order always matches submission order; callers time out individually without wedging the pool. The separate `--handover` process uses its own `EcClient` and skips itself when another app instance is running
 - **Config**: `dirs::config_dir() / framework-crate/config.toml`
 - **Background polling**: tokio task, 200ms–2s interval (idle slowdown)
 - **UI refresh**: self-rescheduling tick (50–1000ms), idle 1s, hidden 2s
@@ -316,7 +316,7 @@ Notes:
 Manual and curve modes pin the fan, and an elevated app does not reliably receive in-session logoff notifications, so the fan could stay pinned after sign-out. To prevent that, the app registers `FrameworkCrateHandover`, a SYSTEM scheduled task triggered by the TerminalServices LocalSessionManager event 23 (session logoff succeeded) with a 30 s delay. It runs `framework-crate.exe --handover --charge-limit <pct>`, reconnects the EC, returns the fan to firmware, re-applies the charge limit captured when the task was last refreshed, and appends the result to `%ProgramData%/framework-crate/handover.log`. Passing the limit in the action means SYSTEM never reads a user-profile config.
 
 - The task is refreshed on startup, fan-mode changes, and charge-limit changes, so a moved installation and a changed limit self-heal; switching the mode to **Disabled** removes it. The captured limit is machine-wide: on a multi-user machine the most recent app instance to sync wins, and SYSTEM never reads any user's config.
-- It is only registered when the executable resolves under Program Files and neither the exe nor any directory up to the Program Files root grants broad-group write/delete access; an ACL that cannot be queried is treated as unsafe. A SYSTEM task must not execute a binary a standard user can replace; if the app runs from a portable folder the task is silently skipped (debug-level log only). Debug builds can set `FRAMEWORK_CONTROL_ALLOW_UNPROTECTED_HANDOVER=1` to bypass the check; release builds ignore the variable.
+- It is only registered when the executable is under Program Files and neither the exe nor any directory up to the Program Files root grants broad-group write/delete access; an ACL that cannot be queried is treated as unsafe. A SYSTEM task must not execute a binary a standard user can replace; if the app runs from a portable folder the task is silently skipped (debug-level log only). Debug builds can set `FRAMEWORK_CONTROL_ALLOW_UNPROTECTED_HANDOVER=1` to bypass the check; release builds ignore the variable.
 - The handover skips itself when another Framework Crate instance is running in any session (including fast-user-switched or RDP-disconnected sessions), so a running app is not clobbered. If process enumeration fails, it falls back to `WTSActive` sessions.
 
 ## Logs
@@ -333,7 +333,7 @@ The file rotates once it grows past a size threshold, keeping `app.log.1` throug
 | `FRAMEWORK_CONTROL_CONFIG_DIR` | Overrides the config directory in debug/test builds. Must be absolute, with no `..` and no `\\?\` / `\\.\` prefix. Release builds ignore it |
 | `FRAMEWORK_ALLOW_UNKNOWN_MODULE_HASH=1` | Loads PawnIO module blobs whose hash is not pinned. Only after manual verification of a newer upstream release. Debug builds only; release builds always fail closed |
 | `FRAMEWORK_ALLOW_UNSIGNED_PAWNIO=1` | Loads the PawnIO DLL despite an Authenticode failure. For self-signed test DLLs. Debug builds only; release builds always fail closed |
-| `FRAMEWORK_CONTROL_ALLOW_UNPROTECTED_HANDOVER=1` | Registers the SYSTEM sign-out handover task from a location outside Program Files. Debug builds only; release builds ignore it. Development only: any user who can write the exe could then run code as SYSTEM |
+| `FRAMEWORK_CONTROL_ALLOW_UNPROTECTED_HANDOVER=1` | Registers the SYSTEM sign-out handover task from outside Program Files. Debug builds only; release builds ignore it. Development only: any user who can write the exe could then run code as SYSTEM |
 
 </details>
 
@@ -369,7 +369,7 @@ The official PawnIO Modules are **not** in this repository and are **not** embed
 2. Open **CPU Power** and click **Download Modules**.
 3. The app fetches `IntelMSR.bin`, `IntelMCHBAR.bin`, and `RyzenSMU.bin` from [PawnIO Modules Releases](https://github.com/namazso/PawnIO.Modules/releases) (latest, falling back to 0.2.11 when the GitHub API is unreachable), checks SHA-256 (enforced) and caches them in `%APPDATA%/framework-crate/modules/`. Intel uses the first two; AMD telemetry and experimental writes use `RyzenSMU.bin`.
 
-A missing file blocks CPU Power; a hash mismatch also blocks use — update the app for the new release, or set `FRAMEWORK_ALLOW_UNKNOWN_MODULE_HASH=1` only after manual verification. Failed download shows manual instructions: download latest `release_*.zip` from the releases page and place `IntelMSR.bin` + `IntelMCHBAR.bin` (Intel) or `RyzenSMU.bin` (AMD) into `%APPDATA%/framework-crate/modules/`. Use **Open Modules Folder** and **Redetect** in the UI to verify — no restart needed.
+A missing file blocks CPU Power; a hash mismatch also blocks use — update the app for the new release, or set `FRAMEWORK_ALLOW_UNKNOWN_MODULE_HASH=1` only after manual verification. A failed download shows manual instructions: download the latest `release_*.zip` from the releases page and place `IntelMSR.bin` + `IntelMCHBAR.bin` (Intel) or `RyzenSMU.bin` (AMD) into `%APPDATA%/framework-crate/modules/`. Use **Open Modules Folder** and **Redetect** in the UI to verify — no restart needed.
 
 The first successful RAPL read while on AC also persists the original factory limits to `bios_defaults.toml` (see Configuration). `Reset` restores the MSR values from that snapshot; the MMIO mirror is read-only and is left untouched. `Apply` stores the edited values in the currently selected AC or Battery profile. The app records each state's firmware power wall from the **MMIO mirror** (`ac_initial` / `battery_initial` in the config), updating it only when the mirror value changes (e.g. after a BIOS update), and uses it as the default when no user profile exists. Those captures are machine-local: settings export omits them and import clears them so the receiving machine records its own. With "Keep power limits applied" enabled on the About page, the matching profile (or the recorded wall) is applied once at startup, immediately after resume, on every AC↔battery change, and re-asserted every 5 minutes; the toggle is persisted in the config. When the toggle is off, AC→battery keeps the old behavior of resetting to BIOS defaults. A source with neither a profile nor a recorded wall falls back to that reset instead of guessing values.
 

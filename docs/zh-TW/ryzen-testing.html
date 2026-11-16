@@ -43,7 +43,7 @@
 <p class="muted"><a href="contribute.html">參與貢獻</a> / Ryzen 測試</p>
 
 <h1>Ryzen CPU Power 測試</h1>
-<p class="muted">AMD 寫入支援為實驗性。請用此清單收集可比較的結果。唯讀遙測安全；寫入需要開啟 <strong>Enable experimental AMD writes</strong>，且可能被韌體拒絕或夾限。</p>
+<p class="muted">AMD 寫入支援為實驗性。請用此清單收集可比較的結果。唯讀遙測是安全的；寫入需要開啟 <strong>Enable experimental AMD writes</strong>，且可能被韌體拒絕或夾限。</p>
 
 <div class="card"><strong>Stages 0–3 一律先接上充電器。</strong> 只有 AC 寫入確認可運作且 readback 正確後，才測試電池模式寫入。</div>
 
@@ -90,7 +90,7 @@
 <div class="card">只有 <strong>Stage 1（no-op）與 Stage 2（小幅調整）都成功且 readback 相符</strong>後才可進行此階段。任一失敗請停在 Stage 2 回報；在確認寫入可運作前，不要開啟 keep-alive 或測試睡眠／AC 切換。</div>
 <ol>
 <li>在 AC 下儲存 AC profile 並開啟 keep-alive；確認 AC profile 有套用。</li>
-<li>之後才儲存不同的 Battery profile，並在插拔後確認切換。</li>
+<li>之後才儲存不同的 Battery profile，並在插拔電源後確認切換。</li>
 <li>在 AC 下睡眠／喚醒，確認 profile 有重新套用。</li>
 <li>按一次 <strong>Reset</strong>（keep-alive 應關閉）後再重複一次。</li>
 <li>記錄任何異常數值、錯誤或風扇行為，以及當下電源狀態。</li>

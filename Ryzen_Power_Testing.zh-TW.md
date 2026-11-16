@@ -49,7 +49,7 @@ AMD 寫入支援為實驗性。請依照此清單收集可比較的結果。唯�
 任一失敗請停在 Stage 2 回報；在確認寫入可運作前，不要開啟 keep-alive 或測試睡眠／AC 切換。
 
 1. 在 AC 下儲存 AC profile 並開啟 keep-alive；確認 AC profile 有套用。
-2. 之後才儲存不同的 Battery profile，並在插拔後確認切換。
+2. 之後才儲存不同的 Battery profile，並在插拔電源後確認切換。
 3. 在 AC 下睡眠／喚醒，確認 profile 有重新套用。
 4. 按一次 **Reset**（keep-alive 應關閉）後再重複一次。
 5. 記錄任何異常數值、錯誤或風扇行為，以及當下電源狀態。

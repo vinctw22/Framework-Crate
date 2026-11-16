@@ -13,7 +13,7 @@
 
 ## 下載
 
-每個 [GitHub Release](https://github.com/vinctw22/Framework-Crate/releases) 都會附上 per-machine 安裝程式 `FrameworkCrate-Setup-<version>.exe` 與可攜版 `framework-crate.exe`。建議使用安裝程式：會安裝到 `C:\Program Files\Framework Crate`，並在 Windows 設定中建立解除安裝項目。release notes 會列出該版本變更。
+每個 [GitHub Release](https://github.com/vinctw22/Framework-Crate/releases) 都會附上安裝程式 `FrameworkCrate-Setup-<version>.exe` 與可攜版 `framework-crate.exe`。建議使用安裝程式：會為所有使用者安裝到 `C:\Program Files\Framework Crate`，之後可從 Windows 設定解除安裝。release notes 會列出該版本變更。
 
 執行安裝程式，或將可攜版 `.exe` 以管理員身分執行。PawnIO 為選用元件，只有 CPU Power 卡片需要；其他功能只要安裝 Framework EC 驅動即可運作。若要使用登出風扇交接，請使用安裝程式或把 exe 放在 Program Files；放在 Downloads／Desktop 的可攜版無法註冊 SYSTEM 工作。建置方式見 [release workflow](.github/workflows/ci.yml)。
 
@@ -45,19 +45,19 @@
 
 ## 功能
 
-> 備註：0.9.7 新增 Intel CPU package power（MSR 能量計數器）與對照工具，並保留 0.9.6 的 AMD RyzenSMU 支援與 review 修正。
+> 備註：0.9.7 新增 Intel CPU package power（MSR 能量計數器）與對照工具，並保留 0.9.6 的 AMD RyzenSMU 支援與程式碼審查修正。
 
-- **風扇控制** — Auto（韌體）、Manual（0–100% 負載，可逐風扇設定；95°C 以上最低托底 90%）、Curve（畫布拖曳點，預設 5 點、滯後與速率限制；曲線上顯示即時感測器標記；多風扇機種可透過 Unified 開關使用逐風扇曲線；校準精靈會量測各風扇 RPM 表，讓升速播種更準確）
-- **電池管理** — 最高充電上限（25–100%）與啟用／停用開關；啟動時套用已儲存上限。健康度以 last-full／設計容量計算；Details 在 AC 時顯示充電器電壓／輸入，並在可讀取時顯示智慧電池資料（各電芯電壓、電池組溫度、安全警示）
+- **風扇控制** — Auto（韌體）、Manual（0–100% 負載，可逐風扇設定；95°C 以上最低維持 90%）、Curve（可在畫布上拖曳點，預設 5 點、滯後與速率限制；曲線上顯示即時感測器標記；多風扇機種可透過 Unified 開關使用逐風扇曲線；校準精靈會量測各風扇 RPM 表，讓升速時的 RPM 估算更準確）
+- **電池管理** — 最高充電上限（25–100%）與啟用／停用開關；啟動時套用已儲存上限。健康度以 last-full／設計容量計算；Details 區塊在 AC 時顯示充電器電壓／輸入，並在可讀取時顯示智慧電池資料（各電芯電壓、電池組溫度、安全警示）
 - **即時遙測** — 即時溫度圖（可選 15/30/60 秒視窗，預設 30 秒）、各感測器彩色指示，標題列顯示風扇 RPM
 - **Misc 面板** — 相機／麥克風隱私開關狀態、鍵盤背光滑桿、指紋 LED 等級，以及依 PD 狀態推斷的 USB-C／HDMI／DP 連接埠分類
-- **CPU Power** — Intel：透過 PawnIO 讀寫 PL1/PL2（選用；模組下載經 SHA-256 驗證）；可讀取時顯示 turbo 即時值（目前／上限 GHz）；第一次在 AC 下成功讀取時會保存原廠限制供 `Reset` 使用。`Apply` 會把數值存進目前選取的 **AC** 或 **Battery** profile；About 頁的「Keep power limits applied」啟用時（設定會持久化），啟動與每次 AC↔電池切換都會套用對應 profile。寫入只走 MSR 0x610：官方 IntelMCHBAR 模組為唯讀，MMIO mirror 僅顯示、不寫入。寫入依機型上限（Laptop 12 → 40W、13 → 70W、16 → 100W、Desktop → 120W），啟用時需 ≥5W，且 PL1 ≤ PL2。**AMD（實驗性）**：RyzenSMU 卡片顯示 code name、SMU 版本，以及 PM table 的 STAPM／PPT Fast／PPT Slow／Tctl；AC／Battery profiles 與 keep-alive 行為與 Intel 相同。寫入需明確開啟實驗性選項，仍需社群實機驗證。
+- **CPU Power** — Intel：透過 PawnIO 讀寫 PL1/PL2（選用；模組下載經 SHA-256 驗證）；可讀取時顯示 turbo 即時值（目前／上限 GHz）；第一次在 AC 下成功讀取時會儲存原廠限制供 `Reset` 使用。`Apply` 會把數值存進目前選取的 **AC** 或 **Battery** profile；About 頁的「Keep power limits applied」啟用時（設定會持久化），啟動與每次 AC↔電池切換都會套用對應 profile。寫入只走 MSR 0x610：官方 IntelMCHBAR 模組為唯讀，MMIO mirror 僅顯示、不寫入。寫入依機型上限（Laptop 12 → 40W、13 → 70W、16 → 100W、Desktop → 120W），啟用時需 ≥5W，且 PL1 ≤ PL2。**AMD（實驗性）**：RyzenSMU 卡片顯示 code name、SMU 版本，以及 PM table 的 STAPM／PPT Fast／PPT Slow／Tctl；AC／Battery profiles 與 keep-alive 行為與 Intel 相同。寫入需明確開啟實驗性選項，仍需社群實機驗證。
 - **About 頁面** — 硬體資訊（CPU、RAM、螢幕、BIOS、主機板版本）、PD 控制器韌體版本、軟體設定（poll 頻率、refresh 間隔、開機啟動、keep power limits applied）、GitHub 連結、手動下載網址的一鍵複製按鈕，以及第三方授權聲明
-- **設定備份** — 將設定匯出成檔案（原生存檔對話框、標記機型）並可匯入；嚴格驗證會拒絕未知欄位與版本不符，機箱尺寸不同會直接拒絕
+- **設定備份** — 將設定匯出成檔案（原生存檔對話框、標記機型）並可匯入；嚴格驗證會拒絕未知欄位與版本不符，機型尺寸不同也會直接被拒絕
 - **系統匣** — 可最小化到系統匣；圖示右鍵選單（Show／Quit）與目前溫度 hover tooltip；Explorer 重啟後會自動恢復圖示
-- **開機啟動** — 註冊每位使用者的登入排程工作，讓托盤程式在重新開機後回來。工作文件在程式內產生後交給 `schtasks /Create /XML`；重要設定（無執行時間限制、清除電池條件、失敗重啟）都有測試驗證，不需要提權
-- **登出風扇交接** — 手動或曲線模式下註冊 SYSTEM 工作（`FrameworkCrateHandover`），登出時將風扇交還韌體並重新套用充電上限，結果附加到 `%ProgramData%/framework-crate/handover.log`。只有程式位於 Program Files 時才會註冊（SYSTEM 工作不得執行使用者可替換的 exe）；切換到 Disabled 會移除工作
-- **檔案日誌** — 警告與錯誤寫入 `%APPDATA%/framework-crate/app.log`，並依大小輪替；因為登入啟動的程序沒有主控台可輸出
+- **開機啟動** — 註冊每位使用者的登入排程工作，讓系統匣程式在重新開機後回來。工作文件在程式內產生後交給 `schtasks /Create /XML`；重要設定（無執行時間限制、清除電池條件、失敗重啟）都有測試驗證，不需要提權
+- **登出風扇交接** — 手動或曲線模式下註冊 SYSTEM 工作（`FrameworkCrateHandover`），登出時將風扇交還韌體並重新套用充電上限，結果附加到 `%ProgramData%/framework-crate/handover.log`。只有程式安裝在 Program Files 時才會註冊（SYSTEM 工作不得執行使用者可替換的 exe）；切換到 Disabled 會移除工作
+- **檔案日誌** — 警告與錯誤寫入 `%APPDATA%/framework-crate/app.log`，並依大小輪替；因為登入啟動的程式沒有主控台可輸出
 
 ## 系統需求
 
@@ -78,7 +78,7 @@ src/
     mod.rs             — App/AppState/Message 型別、new()/subscription()/update()/view()、update_inner dispatcher
     config.rs          — 設定相關 message handler 與 save/mutate_config helper
     cpu_power.rs       — CPU power（PL1/PL2）message handler 與輸入驗證
-    tray.rs            — 托盤 message handler（最小化／還原／退出、電源 resume）
+    tray.rs            — 系統匣 message handler（最小化／還原／退出、電源 resume）
     quit.rs            — 退出流程（結束時還原韌體／指定風扇、flush 充電上限）
     tick.rs            — 自我排程 UI tick、autosize_task、snapshot 重建
     misc.rs            — 一次性 dispatch（設定切換、debug report、周邊寫入）
@@ -124,7 +124,7 @@ src/
   temp_chart.rs        — 畫布式溫度折線圖（可選歷史視窗）
   curve_canvas.rs      — 互動式畫布風扇曲線編輯器（拖曳點、感測器標記）
   fan_control.rs       — CurveStepper、速率限制、duty 計算
-  system_info.rs       — Windows API FFI（CPU、RAM、OS、螢幕、托盤）
+  system_info.rs       — Windows API FFI（CPU、RAM、OS、螢幕、系統匣）
     handover_task.rs   — SYSTEM 登出工作註冊 + Program Files/ACL 閘門
     startup_task.rs    — 登入工作、受保護工作目錄、單一實例 guard
   probe.rs             — HeightProbe widget，用於動態視窗高度
@@ -134,9 +134,9 @@ src/
     ec_wrapper.rs      — 包裝 framework_lib CrosEc 的 EcClient
     mod.rs
   tray/
-    mod.rs             — TrayManager（Windows 托盤圖示）
+    mod.rs             — TrayManager（Windows 系統匣圖示）
     event.rs           — TrayIcon 事件
-    message_pump.rs    — 托盤圖示專用 message pump 執行緒
+    message_pump.rs    — 系統匣圖示專用 message pump 執行緒
 ```
 
 ### 資料流
@@ -147,7 +147,7 @@ framework_lib (CrosEc) → ec_serial (single FIFO writer) → background_task �
                                                            config_save_task → config.toml
 ```
 
-- **硬體存取**：`framework_lib` 透過 kernel driver 直接呼叫 EC（不開子程序）
+- **硬體存取**：`framework_lib` 透過 kernel driver 直接呼叫 EC（不開子行程）
 - **EC 序列化**：UI 行程內每個 EC 呼叫都由同一個 FIFO worker（`ec_serial`）派送，同一時間最多一個驅動呼叫，硬體執行順序永遠等於提交順序；個別呼叫可各自 timeout，不會卡死整個 pool。獨立的 `--handover` 行程有自己的 `EcClient`，且偵測到另一個 app 實例時會跳過
 - **設定**：`dirs::config_dir() / framework-crate/config.toml`
 - **背景輪詢**：tokio task，200ms–2s 間隔（idle 時放慢）
@@ -196,7 +196,7 @@ $p.Kill()
 
 設定檔位置：`%APPDATA%/framework-crate/config.toml`
 
-第一次在 AC 且 PawnIO 可用時，會把原廠 PL1/PL2（MSR + MMIO 瓦數、enabled、clamped、時間視窗與 RAPL 單位）存到 `%APPDATA%/framework-crate/bios_defaults.toml`。UI 的 `Reset` 會還原持久化的 MSR 值；官方 IntelMCHBAR 模組的 MMIO mirror 為唯讀，不會被覆寫。刪除該檔可在下次 AC 啟動時重新擷取目前 BIOS 值。
+第一次在 AC 下且 PawnIO 可用時，會把原廠 PL1/PL2（MSR + MMIO 瓦數、enabled、clamped、時間視窗與 RAPL 單位）存到 `%APPDATA%/framework-crate/bios_defaults.toml`。UI 的 `Reset` 會還原持久化的 MSR 值；官方 IntelMCHBAR 模組的 MMIO mirror 為唯讀，不會被覆寫。刪除該檔可在下次 AC 啟動時重新擷取目前 BIOS 值。
 
 ```toml
 [fan]
@@ -224,7 +224,7 @@ value = 80
 
 [cpu_power]
 keep_limits = true  # About -> "Keep power limits applied"
-amd_write_experimental = false  # 僅 AMD；未驗證寫入路徑的明確 opt-in
+amd_write_experimental = false  # 僅 AMD；未驗證寫入路徑，需明確啟用
 
 [cpu_power.ac]
 pl1_watts = 30.0
@@ -245,7 +245,7 @@ pl2_enabled = true
 pl2_clamped = false
 
 # 各狀態第一次看到的 MMIO mirror，只在數值變更時更新，
-# 並在沒有對應使用者 profile 時作為預設。機器本地：
+# 並在沒有對應使用者 profile 時作為預設。只存在本機：
 # 不列入設定匯出、匯入時清除。除非刻意修改 baseline，否則不要動。
 [cpu_power.ac_initial]
 pl1_watts = 30.0
@@ -270,7 +270,7 @@ fast_watts = 30.0
 slow_watts = 25.0
 tctl_c = 85.0
 
-# 各狀態第一次看到的 PM-table 值；與 Intel initial 一樣是機器本地。
+# 各狀態第一次看到的 PM-table 值；與 Intel initial 一樣只存在本機。
 # [cpu_power.amd_ac_initial] / [cpu_power.amd_battery_initial]
 
 [telemetry]
@@ -292,33 +292,33 @@ selected_sensors = []
 
 | 設定 | 值 | 原因 |
 |------|----|------|
-| `ExecutionTimeLimit` | `PT0S` | `schtasks` 預設 `PT72H` 會在登入三天後悄悄停止托盤程式，且不會再回來 |
+| `ExecutionTimeLimit` | `PT0S` | `schtasks` 預設 `PT72H` 會在登入三天後悄悄停止系統匣程式，且不會再回來 |
 | `DisallowStartIfOnBatteries` / `StopIfGoingOnBatteries` | 清除 | 否則筆電使用電池時會跳過或停止工作 |
 | `RestartOnFailure` | 3 次、`PT1M` | 程式在登入期間崩潰時會回來 |
-| Encoding | UTF-16LE with BOM | Task Scheduler 會以 XML 宣告解析錯誤拒絕 UTF-8 文件 |
+| Encoding | UTF-16LE with BOM | Task Scheduler 會因 XML 宣告解析錯誤而拒絕 UTF-8 文件 |
 | `Command` / `Arguments` | 分開的元素 | 避免舊 `/TR` 形式的參數切割問題 |
 | `RunLevel` | `HighestAvailable` | EC 存取需要提權 token |
 
 備註：
 
-- **啟用需要提權程序。** 工作以 `RunLevel=HighestAvailable` 註冊；失敗時程式會顯示可讀訊息，而不是讓 `schtasks` 輸出本地化的存取拒絕文字。
-- **可攜路徑允許。** `HighestAvailable` 會在登入時以提權執行映像；放在使用者可寫資料夾的副本可能被替換以取得提權，請避免把可攜版放在 Downloads／Desktop／Temp 等常見位置。
+- **啟用需要提權行程。** 工作以 `RunLevel=HighestAvailable` 註冊；失敗時程式會顯示可讀訊息，而不是讓 `schtasks` 輸出本地化的存取拒絕文字。
+- **允許使用可攜版路徑。** `HighestAvailable` 會在登入時以提權執行映像；放在使用者可寫資料夾的副本可能被替換以取得提權，請避免把可攜版放在 Downloads／Desktop／Temp 等常見位置。
 - `schtasks` 輸出以 OEM code page 解碼，非英文訊息仍可讀。
 - 建立工作後程式會查詢回來，只有工作真的可查詢時才回報成功。
-- 工作文件以 UTF-16LE 寫到僅管理員可寫的 `%ProgramData%\FrameworkCrate\tasks`，檔名為不可預測雜湊，之後刪除。Debug／未提權測試使用 `%TEMP%`。程序若在寫入中被終止，刪除不會執行，殘留文件會在下次啟動時清理。
+- 工作文件以 UTF-16LE 寫到僅管理員可寫的 `%ProgramData%\FrameworkCrate\tasks`，檔名為不可預測雜湊，之後刪除。Debug／未提權測試使用 `%TEMP%`。行程若在寫入中被終止，刪除不會執行，殘留文件會在下次啟動時清理。
 - 執行檔路徑在嵌入前會驗證：引號、cmd metacharacter、控制字元、bidi 覆寫、`DEL` 與結尾反斜線都會被拒絕，因為路徑會以 XML 文字嵌入並在 action `Command` 中加上引號。
 
 ## 登出風扇交接
 
-手動與曲線模式會固定風扇，而提權程式無法可靠收到工作階段內的登出通知，風扇可能在登出後維持固定。為此程式會註冊 `FrameworkCrateHandover` SYSTEM 排程工作，由 TerminalServices LocalSessionManager 事件 23（工作階段登出成功）觸發，延遲 30 秒後執行 `framework-crate.exe --handover --charge-limit <pct>`：重連 EC、將風扇交還韌體、重新套用工作刷新時捕捉的充電上限，並把結果附加到 `%ProgramData%/framework-crate/handover.log`。把上限放在 action 參數裡代表 SYSTEM 不需要讀取使用者設定檔。
+手動與曲線模式會固定風扇，而提權程式無法可靠收到工作階段內的登出通知，風扇可能在登出後維持固定。為此程式會註冊 `FrameworkCrateHandover` SYSTEM 排程工作，由 TerminalServices LocalSessionManager 事件 23（工作階段登出成功）觸發，延遲 30 秒後執行 `framework-crate.exe --handover --charge-limit <pct>`：重連 EC、將風扇交還韌體、重新套用上次更新工作時捕捉的充電上限，並把結果附加到 `%ProgramData%/framework-crate/handover.log`。把上限放在 action 參數裡代表 SYSTEM 不需要讀取使用者設定檔。
 
-- 啟動、風扇模式變更與充電上限變更都會刷新工作，程式搬移或上限改變後可自動修復；切換到 **Disabled** 會移除工作。捕捉到的上限是整台機器共用的：多使用者時以最近一次同步的 app 實例為準，SYSTEM 不會讀取任何使用者的設定檔。
-- 只有執行檔解析後位於 Program Files，且 exe 與一路到 Program Files 根目錄的每個資料夾都沒有廣泛群組的寫入／刪除權限時才會註冊；ACL 查詢失敗一律視為不安全。SYSTEM 工作不得執行一般使用者可替換的執行檔；若程式從可攜資料夾執行，工作會靜默跳過（僅 debug log）。Debug 版可用 `FRAMEWORK_CONTROL_ALLOW_UNPROTECTED_HANDOVER=1` 略過此檢查；release 版會忽略該變數。
+- 啟動、風扇模式變更與充電上限變更都會更新工作，程式搬移或上限改變後可自動修復；切換到 **Disabled** 會移除工作。捕捉到的上限是整台機器共用的：多使用者時以最近一次同步的 app 實例為準，SYSTEM 不會讀取任何使用者的設定檔。
+- 只有執行檔位於 Program Files，且 exe 與一路到 Program Files 根目錄的每個資料夾都沒有廣泛群組的寫入／刪除權限時才會註冊；ACL 查詢失敗一律視為不安全。SYSTEM 工作不得執行一般使用者可替換的執行檔；若程式從可攜資料夾執行，工作會靜默跳過（僅 debug log）。Debug 版可用 `FRAMEWORK_CONTROL_ALLOW_UNPROTECTED_HANDOVER=1` 略過此檢查；release 版會忽略該變數。
 - 交接會先偵測是否有另一個 Framework Crate 行程在任何 session 執行（包含快速切換使用者或 RDP 斷線的 session），有就跳過，避免覆蓋正在執行的程式。若行程列舉失敗，才退回只計入 `WTSActive` 工作階段的檢查。
 
 ## 日誌
 
-`tracing` 輸出會寫到 `%APPDATA%/framework-crate/app.log`，而不是只寫 stderr；因為登入啟動的程序沒有主控台，只寫 stderr 會讓自動啟動的警告與錯誤全部遺失。
+`tracing` 輸出會寫到 `%APPDATA%/framework-crate/app.log`，而不是只寫 stderr；因為登入啟動的程式沒有主控台，只寫 stderr 會讓自動啟動的警告與錯誤全部遺失。
 
 檔案超過大小門檻後會輪替，保留 `app.log.1` 到 `app.log.3`。若日誌無法開啟，程式仍會啟動並退回 stderr。
 
@@ -338,14 +338,14 @@ selected_sensors = []
 
 ### 已解決
 
-- **風扇曲線座標（v0.3.0）**：滑桿改成畫布直接拖曳；點拖過彼此時仍保持身分，快取渲染會依內容變更失效。
+- **風扇曲線座標（v0.3.0）**：滑桿改為在畫布上直接拖曳；點拖過彼此時仍保持身分，快取渲染會依內容變更失效。
 - **USB-C 與 USB-A 分類（v0.3.0）**：曾回報 Sink role 的連接埠會固定分類為 USB-C，插拔擴充卡上的裝置不再翻轉類型。
 - **睡眠／休眠風扇控制（v0.3.0，v0.9.0 強化）**：resume 會重置 EC client、`CurveStepper` 與 thermal history；風扇 duty 每 30 秒重送，所有 EC 流量走單一 FIFO writer，並以 wall-clock jump fallback 涵蓋漏掉的 resume 事件。
 - **MMIO mirror 設計上唯讀**：官方 `IntelMCHBAR.bin` 只提供讀取，因此 Apply 只寫 MSR 0x610；mirror 仍用於顯示與 `min(MSR, MMIO)` 有效值估計。對本程式的 CPU power 控制而言，MSR 寫入已足夠。
 
 ### 未解決
 
-- **AMD CPU Power 寫入為實驗性且需 opt-in**：AMD 卡片透過 RyzenSMU MP1/PSMU mailbox 寫入 STAPM／PPT Fast／PPT Slow／Tctl，再讀回 PM table，並支援 AC／Battery profiles 與 About keep-alive。寫入要勾選 **Enable experimental AMD writes**（設定中的 `amd_write_experimental`）才會啟用，**Copy diagnostics** 可匯出 PM table 供社群驗證。維護者沒有 AMD 硬體，因此尚未實機驗證；測試清單與 issue template 見 [Ryzen_Power_Testing.zh-TW.md](Ryzen_Power_Testing.zh-TW.md)（[網頁版](https://vinctw22.github.io/Framework-Crate/zh-TW/ryzen-testing.html)）。
+- **AMD CPU Power 寫入為實驗性且需明確啟用**：AMD 卡片透過 RyzenSMU MP1/PSMU mailbox 寫入 STAPM／PPT Fast／PPT Slow／Tctl，再讀回 PM table，並支援 AC／Battery profiles 與 About keep-alive。寫入要勾選 **Enable experimental AMD writes**（設定中的 `amd_write_experimental`）才會啟用，**Copy diagnostics** 可匯出 PM table 供社群驗證。維護者沒有 AMD 硬體，因此尚未實機驗證；測試清單與 issue template 見 [Ryzen_Power_Testing.zh-TW.md](Ryzen_Power_Testing.zh-TW.md)（[網頁版](https://vinctw22.github.io/Framework-Crate/zh-TW/ryzen-testing.html)）。
 - **沒有 DP-alt 的 HDMI/DP 卡可能誤標**：這類卡可能在消耗 ~3–5W 時省略 DP-alt 模式；可用 About 頁的 Ports Debug Mode 查看原始 role／watts，並用 [USB port 回報表單](https://github.com/vinctw22/Framework-Crate/issues/new?template=usb-port-report.yml) 回報。
 - **平台特定**：只在 Intel Core Ultra Series 1（Meteor Lake）Framework 筆電測試過；AMD RyzenSMU 支援為實驗性。
 - **逐風扇曲線仍需多風扇驗證**：逐風扇曲線（多風扇機種、Unified off）只有模擬 EC 的單元測試 — 沒有 Framework 16／Desktop 多風扇硬體可驗證實機行為。單風扇機種走完全相同的既有路徑。
@@ -368,7 +368,7 @@ CPU Power 區塊支援 **Intel**（透過 MSR 0x610 的 PL1/PL2）與 **AMD**（
 
 缺少檔案會封鎖 CPU Power；雜湊不符也會封鎖 — 請更新程式，或只在人工驗證後設定 `FRAMEWORK_ALLOW_UNKNOWN_MODULE_HASH=1`。下載失敗會顯示手動指示：從 releases 頁下載最新的 `release_*.zip`，把 `IntelMSR.bin` + `IntelMCHBAR.bin`（Intel）或 `RyzenSMU.bin`（AMD）放到 `%APPDATA%/framework-crate/modules/`。可用 UI 的 **Open Modules Folder** 與 **Redetect** 驗證 — 不需重新啟動。
 
-第一次在 AC 下成功的 RAPL 讀取也會把原廠限制持久化到 `bios_defaults.toml`（見設定）。`Reset` 會從該快照還原 MSR 值；MMIO mirror 唯讀且不會被更動。`Apply` 會把編輯值存進目前選取的 AC 或 Battery profile。程式會從 **MMIO mirror** 記錄各狀態的韌體功耗牆（設定中的 `ac_initial`／`battery_initial`），只在 mirror 數值變更時更新（例如 BIOS 更新後），並在沒有使用者 profile 時作為預設。這些擷取屬機器本地：設定匯出會省略、匯入會清除，讓接收機器記錄自己的值。About 頁的「Keep power limits applied」啟用時，對應 profile（或記錄的功耗牆）會在啟動、resume 後、每次 AC↔電池切換時套用一次，之後每 5 分鐘重送；開關會持久化。開關關閉時，AC→電池維持原本重置為 BIOS 預設的行為。若來源既沒有 profile 也沒有記錄的功耗牆，會退回該重置，而不是猜測數值。
+第一次在 AC 下成功的 RAPL 讀取也會把原廠限制持久化到 `bios_defaults.toml`（見設定）。`Reset` 會從該快照還原 MSR 值；MMIO mirror 唯讀且不會被更動。`Apply` 會把編輯值存進目前選取的 AC 或 Battery profile。程式會從 **MMIO mirror** 記錄各狀態的韌體功耗牆（設定中的 `ac_initial`／`battery_initial`），只在 mirror 數值變更時更新（例如 BIOS 更新後），並在沒有使用者 profile 時作為預設。這些擷取值只存在本機：設定匯出會省略、匯入會清除，讓接收機器記錄自己的值。About 頁的「Keep power limits applied」啟用時，對應 profile（或記錄的功耗牆）會在啟動、resume 後、每次 AC↔電池切換時套用一次，之後每 5 分鐘重送；開關會持久化。開關關閉時，AC→電池維持原本重置為 BIOS 預設的行為。若來源既沒有 profile 也沒有記錄的功耗牆，會退回該重置，而不是猜測數值。
 
 官方 `IntelMCHBAR.bin` 只 export 讀取 ioctl（`ioctl_read_qword`）。因此 `Apply` 只寫 MSR 0x610；MMIO mirror 僅供顯示與 `min(MSR, MMIO)` 有效值估計，不會嘗試寫入 MMIO，也不會重複發生 `ioctl_write_qword` 失敗。若 MMIO mirror 持有比 MSR 更低的上限，只寫 MSR 可能不會改變有效限制；那需要自訂 MCHBAR 寫入模組，本專案刻意不提供。
 

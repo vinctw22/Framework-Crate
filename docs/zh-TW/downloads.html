@@ -40,7 +40,7 @@
 </div></header>
 <div class="wrap">
 
-<p class="muted">Windows 預先編譯的安裝程式與可攜版 <code>framework-crate.exe</code>。建議使用安裝程式：會安裝到 <code>C:\Program Files\Framework Crate</code>，並在 Windows 設定中建立解除安裝項目。放在 Program Files 以外的可攜版不會註冊登出風扇交接。</p>
+<p class="muted">安裝程式（建議）：為所有使用者安裝，支援登出風扇交接。可攜版：免安裝，不支援登出風扇交接。</p>
 
 <div class="card">
 <div class="dl-grid">
@@ -53,6 +53,8 @@
 <p class="muted small" id="dl-portable-line" hidden>可攜版：
 <a id="dl-portable-link" href="#">framework-crate.exe</a>
 <span id="dl-portable-meta"></span></p>
+<p class="vt-line" id="vt-portable-line" hidden><span class="muted small">VirusTotal：</span>
+<a id="vt-portable-link" class="vt-chip" href="#">…</a></p>
 </div>
 <div>
 <p><strong><span id="dl-ver-name">最新版本</span>的新功能</strong></p>
@@ -71,7 +73,7 @@
 <div id="rel-list"><p class="muted">正在載入版本歷史…</p></div>
 
 <footer>
-<p>Framework Crate by Vincent Chang · MIT 授權 · © <span id="year">2026</span> · <a href="privacy.html">隱私</a> · <a href="license.html">授權</a> · <a href="security.html">安全性</a> · <a href="limitations.html">Limitations</a> · <a href="https://github.com/vinctw22/Framework-Crate">GitHub</a></p>
+<p>Framework Crate by Vincent Chang · MIT 授權 · © <span id="year">2026</span> · <a href="privacy.html">隱私</a> · <a href="license.html">授權</a> · <a href="security.html">安全性</a> · <a href="limitations.html">限制</a> · <a href="https://github.com/vinctw22/Framework-Crate">GitHub</a></p>
 </footer>
 </div>
 <script>
@@ -160,7 +162,7 @@
     }
     addMetaLine("發布：" + latest.published_at.slice(0, 10));
     if (primary) addMetaLine("大小：" + fmtSize(primary.size).replace(/^ · /, ""));
-    addMetaLine("類型：" + (setup ? "安裝程式（Program Files）" : "可攜版"));
+    addMetaLine("類型：" + (setup ? "安裝程式（所有使用者）" : "可攜版"));
     addMetaLine("下載次數：" + primaryDls.toLocaleString("en-US"));
     var portableLine = document.getElementById("dl-portable-line");
     if (setup && portable) {
@@ -174,29 +176,49 @@
     }
     document.getElementById("dl-ver-name").textContent = latest.tag_name;
     renderNotes(document.getElementById("dl-notes"), latest.body || "沒有提供版本說明。");
-    // The release notes carry one scan result per artifact; render the
-    // primary artifact's report as a chip instead of fetching vt.json (release
-    // files send no CORS headers). The VT step writes exe first, setup last.
+    // The release notes carry one scan result per artifact; render both
+    // instead of fetching vt.json (release files send no CORS headers). The
+    // VT step writes the portable EXE first and the setup last.
     var body = latest.body || "";
     var vtUrls = body.match(/https:\/\/www\.virustotal\.com\/gui\/file\/[0-9a-f]{64}/gi) || [];
     var vtMatches = [];
     var vtRe = /(\d+)\s+malicious,\s+(\d+)\s+suspicious\s+of\s+(\d+)\s+engines/gi;
     var vtMatch;
     while ((vtMatch = vtRe.exec(body)) !== null) vtMatches.push(vtMatch);
-    var vtIndex = (setup && vtUrls.length > 1) ? vtUrls.length - 1 : 0;
-    var vtUrl = vtUrls[vtIndex];
-    var vtVerdict = vtMatches[vtIndex] || vtMatches[0];
-    if (vtUrl) {
-      var vtLine = document.getElementById("vt-line");
-      var vtLink = document.getElementById("vt-link");
-      vtLink.href = vtUrl;
-      if (vtVerdict) {
-        vtLink.textContent = latest.tag_name + " · " + (setup ? "安裝程式" : "可攜版") + " · " +
-          vtVerdict[1] + " 個惡意、" + vtVerdict[2] + " 個可疑，共 " + vtVerdict[3] + " 個引擎";
-      } else {
-        vtLink.textContent = latest.tag_name + " · " + (setup ? "安裝程式" : "可攜版") + " · 查看報告";
+
+    function showVt(lineId, linkId, url, verdict, label) {
+      var line = document.getElementById(lineId);
+      var link = document.getElementById(linkId);
+      if (!url) {
+        line.hidden = true;
+        return;
       }
-      vtLine.hidden = false;
+      link.href = url;
+      link.textContent = latest.tag_name + " · " + label + " · " +
+        (verdict
+          ? verdict[1] + " 個惡意、" + verdict[2] + " 個可疑，共 " + verdict[3] + " 個引擎"
+          : "查看報告");
+      line.hidden = false;
+    }
+
+    var setupVtIndex = (setup && vtUrls.length > 1) ? vtUrls.length - 1 : 0;
+    showVt(
+      "vt-line",
+      "vt-link",
+      vtUrls[setupVtIndex],
+      vtMatches[setupVtIndex],
+      setup ? "安裝程式" : "可攜版"
+    );
+    if (setup && portable && vtUrls.length > 1) {
+      showVt(
+        "vt-portable-line",
+        "vt-portable-link",
+        vtUrls[0],
+        vtMatches[0],
+        "可攜版"
+      );
+    } else {
+      document.getElementById("vt-portable-line").hidden = true;
     }
     var shaBox = document.getElementById("dl-sha");
     var shaEl = document.getElementById("dl-sha-text");
