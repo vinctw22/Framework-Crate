@@ -428,8 +428,90 @@ fn app_style(app: &App, theme: &iced::Theme) -> iced::theme::Style {
     style
 }
 
+/// Print the package version and exit. Runs before elevation so package
+/// validation and scripts can probe a standard-user install without UAC.
+/// Attaching to the parent console is best-effort: a GUI launch has none, and
+/// callers should rely on the exit code rather than captured output.
+fn print_version() {
+    use windows_sys::Win32::Foundation::{CloseHandle, GENERIC_WRITE, INVALID_HANDLE_VALUE};
+    use windows_sys::Win32::Storage::FileSystem::{
+        CreateFileW, FILE_SHARE_READ, FILE_SHARE_WRITE, OPEN_EXISTING, WriteFile,
+    };
+    use windows_sys::Win32::System::Console::{
+        ATTACH_PARENT_PROCESS, AttachConsole, GetStdHandle, STD_OUTPUT_HANDLE,
+    };
+
+    let text = format!("Framework Crate {}\r\n", env!("CARGO_PKG_VERSION")).into_bytes();
+    // SAFETY: handles are checked before use; the byte buffer and the
+    // CONOUT$ path live until the Win32 calls return.
+    unsafe {
+        let _ = AttachConsole(ATTACH_PARENT_PROCESS);
+        let mut handle = GetStdHandle(STD_OUTPUT_HANDLE);
+        let mut opened = false;
+        if handle.is_null() || handle == INVALID_HANDLE_VALUE {
+            let path = crate::system_info::to_wide("CONOUT$");
+            handle = CreateFileW(
+                path.as_ptr(),
+                GENERIC_WRITE,
+                FILE_SHARE_READ | FILE_SHARE_WRITE,
+                std::ptr::null(),
+                OPEN_EXISTING,
+                0,
+                std::ptr::null_mut(),
+            );
+            opened = true;
+        }
+        if !handle.is_null() && handle != INVALID_HANDLE_VALUE {
+            let mut written = 0u32;
+            let _ = WriteFile(
+                handle,
+                text.as_ptr().cast(),
+                text.len() as u32,
+                &mut written,
+                std::ptr::null_mut(),
+            );
+        }
+        if opened && !handle.is_null() && handle != INVALID_HANDLE_VALUE {
+            let _ = CloseHandle(handle);
+        }
+    }
+}
+
+/// Relaunch the GUI elevated. Returns true when the elevated process started;
+/// false when UAC was cancelled or the launch failed.
+fn relaunch_elevated(args: &[String]) -> bool {
+    use windows_sys::Win32::UI::Shell::ShellExecuteW;
+    use windows_sys::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
+
+    let exe = match std::env::current_exe() {
+        Ok(exe) => exe,
+        Err(_) => return false,
+    };
+    let exe = crate::system_info::to_wide_path(&exe);
+    let verb = crate::system_info::to_wide("runas");
+    let params = crate::system_info::to_wide(&args[1..].join(" "));
+    // SAFETY: all strings are NUL-terminated and outlive the call.
+    let result = unsafe {
+        ShellExecuteW(
+            std::ptr::null_mut(),
+            verb.as_ptr(),
+            exe.as_ptr(),
+            params.as_ptr(),
+            std::ptr::null(),
+            SW_SHOWNORMAL,
+        )
+    };
+    result as isize > 32
+}
+
 fn main() {
     let args: Vec<String> = std::env::args().collect();
+    // Headless version probe. Must run before elevation and the
+    // single-instance guard so it works from a standard-user context.
+    if args.iter().any(|a| a == "--version" || a == "-V") {
+        print_version();
+        std::process::exit(0);
+    }
     // Headless hardware restore launched by the uninstaller. Runs before the
     // single-instance mutex and before any UI/tracing setup.
     if args.iter().any(|a| a == "--uninstall-cleanup") {
@@ -442,6 +524,18 @@ fn main() {
     if args.iter().any(|a| a == "--handover") {
         fallback_log("handover: invoked");
         std::process::exit(handover::run(&args[1..]));
+    }
+    // The release manifest is asInvoker so headless modes can run without
+    // UAC. The GUI still needs the EC driver, so relaunch elevated before
+    // acquiring the single-instance mutex or initializing the UI.
+    if !crate::system_info::is_elevated() {
+        if !relaunch_elevated(&args) {
+            // No modal dialog here: package validation and other headless
+            // callers must never block on a window they cannot dismiss.
+            fallback_log("startup: elevated launch cancelled or failed");
+            std::process::exit(1);
+        }
+        std::process::exit(0);
     }
     let minimized = args.iter().any(|a| a == "--minimized");
     // Log the launch itself: this is the first thing a user checks when a

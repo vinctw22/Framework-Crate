@@ -48,13 +48,11 @@ fn main() {
         res.set("FileVersion", env!("CARGO_PKG_VERSION"));
         res.set("OriginalFilename", "framework-crate.exe");
 
-        // Request administrator privileges via UAC manifest (release only).
-        // Debug builds use asInvoker so `cargo test` works without elevation.
-        let exec_level = if env::var("PROFILE").unwrap_or_default() == "release" {
-            "requireAdministrator"
-        } else {
-            "asInvoker"
-        };
+        // Keep the executable asInvoker so headless modes (`--version`,
+        // `--uninstall-cleanup`, `--handover`) can run from a standard-user
+        // context without a UAC prompt. Normal GUI launches self-elevate in
+        // main() before touching the EC driver or the UI.
+        let exec_level = "asInvoker";
         let manifest = format!(
             r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0">

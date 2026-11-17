@@ -3,12 +3,12 @@
 //!
 //! Split from a single 2,221-line module (P3); implementation lives in
 //! submodules and this root re-exports the surface actually used across the
-//! crate. Four former `pub` helpers (`is_elevated`,
-//! `force_foreground_window`, `find_tray_window`, `post_message`) are now
-//! submodule-internal — each is only called within its own submodule, and
-//! this binary crate has no external consumers, so no
-//! `crate::system_info::*` path referenced anywhere was broken by the split.
-//! (`decode_console_bytes`/`build_startup_task` were already `pub(crate)`.)
+//! crate. Three former `pub` helpers (`force_foreground_window`,
+//! `find_tray_window`, `post_message`) are now submodule-internal — each is
+//! only called within its own submodule, and this binary crate has no external
+//! consumers, so no `crate::system_info::*` path referenced anywhere was broken
+//! by the split. (`is_elevated` is re-exported for main's self-elevation gate;
+//! `decode_console_bytes`/`build_startup_task` were already `pub(crate)`.)
 
 mod handover_task;
 mod startup_task;
@@ -34,6 +34,7 @@ pub(crate) fn to_wide_path(path: &std::path::Path) -> Vec<u16> {
 
 pub use handover_task::sync_handover_task;
 pub(crate) use startup_task::ensure_handover_log_dir;
+pub(crate) use startup_task::is_elevated;
 pub use startup_task::{SingleInstanceGuard, set_startup_launch, startup_launch_enabled};
 pub use system::{
     cpu_name, display_refresh_rate, display_resolution, is_amd_cpu, is_intel_cpu, os_version,

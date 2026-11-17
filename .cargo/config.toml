@@ -1,0 +1,5 @@
+# Link the MSVC CRT statically so the release exe does not require
+# VCRUNTIME140.dll on clean Windows installs (including winget's validation VM).
+# Rust links the CRT dynamically by default on x86_64-pc-windows-msvc.
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static"]
