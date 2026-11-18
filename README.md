@@ -369,7 +369,18 @@ The official PawnIO Modules are **not** in this repository and are **not** embed
 2. Open **CPU Power** and click **Download Modules**.
 3. The app fetches `IntelMSR.bin`, `IntelMCHBAR.bin`, and `RyzenSMU.bin` from [PawnIO Modules Releases](https://github.com/namazso/PawnIO.Modules/releases) (latest, falling back to 0.2.11 when the GitHub API is unreachable), checks SHA-256 (enforced) and caches them in `%APPDATA%/framework-crate/modules/`. Intel uses the first two; AMD telemetry and experimental writes use `RyzenSMU.bin`.
 
-A missing file blocks CPU Power; a hash mismatch also blocks use — update the app for the new release, or set `FRAMEWORK_ALLOW_UNKNOWN_MODULE_HASH=1` only after manual verification. A failed download shows manual instructions: download the latest `release_*.zip` from the releases page and place `IntelMSR.bin` + `IntelMCHBAR.bin` (Intel) or `RyzenSMU.bin` (AMD) into `%APPDATA%/framework-crate/modules/`. Use **Open Modules Folder** and **Redetect** in the UI to verify — no restart needed.
+A missing file blocks CPU Power; a hash mismatch also blocks use — update the app for the new release, or, in a debug build, set `FRAMEWORK_ALLOW_UNKNOWN_MODULE_HASH=1` only after manual verification. A failed download shows manual instructions: download the latest `release_*.zip` from the releases page and place `IntelMSR.bin` + `IntelMCHBAR.bin` (Intel) or `RyzenSMU.bin` (AMD) into `%APPDATA%/framework-crate/modules/`. Use **Open Modules Folder** and **Redetect** in the UI to verify — no restart needed.
+
+### Hash mismatch after a PawnIO.Modules release
+
+Framework Crate verifies the SHA-256 values compiled into the app, so a newer upstream release is rejected until the app is updated. Framework Crate 0.9.10 pins PawnIO Modules 0.2.11:
+
+1. Download `release_0_2_11.zip` from the [0.2.11 release](https://github.com/namazso/PawnIO.Modules/releases/tag/0.2.11).
+2. In **CPU Power**, click **Open Modules Folder**.
+3. Place `IntelMSR.bin` and `IntelMCHBAR.bin` (and `RyzenSMU.bin` for AMD) in `%APPDATA%\framework-crate\modules\`.
+4. Click **Redetect**.
+
+`FRAMEWORK_ALLOW_UNKNOWN_MODULE_HASH=1` is debug-build only; release builds always fail closed. The permanent fix is a Framework Crate release that pins the newer module hashes.
 
 The first successful RAPL read while on AC also persists the original factory limits to `bios_defaults.toml` (see Configuration). `Reset` restores the MSR values from that snapshot; the MMIO mirror is read-only and is left untouched. `Apply` stores the edited values in the currently selected AC or Battery profile. The app records each state's firmware power wall from the **MMIO mirror** (`ac_initial` / `battery_initial` in the config), updating it only when the mirror value changes (e.g. after a BIOS update), and uses it as the default when no user profile exists. Those captures are machine-local: settings export omits them and import clears them so the receiving machine records its own. With "Keep power limits applied" enabled on the About page, the matching profile (or the recorded wall) is applied once at startup, immediately after resume, on every AC↔battery change, and re-asserted every 5 minutes; the toggle is persisted in the config. When the toggle is off, AC→battery keeps the old behavior of resetting to BIOS defaults. A source with neither a profile nor a recorded wall falls back to that reset instead of guessing values.
 

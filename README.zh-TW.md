@@ -366,7 +366,18 @@ CPU Power 區塊支援 **Intel**（透過 MSR 0x610 的 PL1/PL2）與 **AMD**（
 2. 開啟 **CPU Power**，按 **Download Modules**。
 3. 程式會從 [PawnIO Modules Releases](https://github.com/namazso/PawnIO.Modules/releases) 取得 `IntelMSR.bin`、`IntelMCHBAR.bin` 與 `RyzenSMU.bin`（GitHub API 無法連線時退回 0.2.11），驗證 SHA-256（強制）後快取到 `%APPDATA%/framework-crate/modules/`。Intel 使用前兩個；AMD 遙測與實驗性寫入使用 `RyzenSMU.bin`。
 
-缺少檔案會封鎖 CPU Power；雜湊不符也會封鎖 — 請更新程式，或只在人工驗證後設定 `FRAMEWORK_ALLOW_UNKNOWN_MODULE_HASH=1`。下載失敗會顯示手動指示：從 releases 頁下載最新的 `release_*.zip`，把 `IntelMSR.bin` + `IntelMCHBAR.bin`（Intel）或 `RyzenSMU.bin`（AMD）放到 `%APPDATA%/framework-crate/modules/`。可用 UI 的 **Open Modules Folder** 與 **Redetect** 驗證 — 不需重新啟動。
+缺少檔案會封鎖 CPU Power；雜湊不符也會封鎖 — 請更新程式，或只在人工驗證後設定 `FRAMEWORK_ALLOW_UNKNOWN_MODULE_HASH=1`（僅 debug build）。下載失敗會顯示手動指示：從 releases 頁下載最新的 `release_*.zip`，把 `IntelMSR.bin` + `IntelMCHBAR.bin`（Intel）或 `RyzenSMU.bin`（AMD）放到 `%APPDATA%/framework-crate/modules/`。可用 UI 的 **Open Modules Folder** 與 **Redetect** 驗證 — 不需重新啟動。
+
+### PawnIO.Modules 更新後出現雜湊不符
+
+Framework Crate 會用編譯進 App 的 SHA-256 驗證 module，因此較新的 upstream 版本在 App 更新前會被拒絕。Framework Crate 0.9.10 pin 的是 PawnIO Modules 0.2.11：
+
+1. 從 [0.2.11 release](https://github.com/namazso/PawnIO.Modules/releases/tag/0.2.11) 下載 `release_0_2_11.zip`。
+2. 在 **CPU Power** 按 **Open Modules Folder**。
+3. 將 `IntelMSR.bin`、`IntelMCHBAR.bin`（AMD 另加 `RyzenSMU.bin`）放到 `%APPDATA%\framework-crate\modules\`。
+4. 按 **Redetect**。
+
+`FRAMEWORK_ALLOW_UNKNOWN_MODULE_HASH=1` 只在 debug build 有效；release build 一律 fail closed。永久修正方式是發布 pin 新 hash 的 App 版本。
 
 第一次在 AC 下成功的 RAPL 讀取也會把原廠限制持久化到 `bios_defaults.toml`（見設定）。`Reset` 會從該快照還原 MSR 值；MMIO mirror 唯讀且不會被更動。`Apply` 會把編輯值存進目前選取的 AC 或 Battery profile。程式會從 **MMIO mirror** 記錄各狀態的韌體功耗牆（設定中的 `ac_initial`／`battery_initial`），只在 mirror 數值變更時更新（例如 BIOS 更新後），並在沒有使用者 profile 時作為預設。這些擷取值只存在本機：設定匯出會省略、匯入會清除，讓接收機器記錄自己的值。About 頁的「Keep power limits applied」啟用時，對應 profile（或記錄的功耗牆）會在啟動、resume 後、每次 AC↔電池切換時套用一次，之後每 5 分鐘重送；開關會持久化。開關關閉時，AC→電池維持原本重置為 BIOS 預設的行為。若來源既沒有 profile 也沒有記錄的功耗牆，會退回該重置，而不是猜測數值。
 
