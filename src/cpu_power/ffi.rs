@@ -570,19 +570,17 @@ pub fn update_pawnio() -> Result<(), String> {
     }
 }
 
-/// Updates PawnIO Modules. Skips the download when the recorded local tag
-/// already matches upstream latest; an unreachable API or missing marker
-/// falls through to downloading.
+/// Updates PawnIO Modules to the latest signed release. Skips the download
+/// when the recorded local tag already matches upstream latest; an
+/// unreachable API or missing marker falls through to downloading.
 pub fn update_pawnio_modules(amd: bool) -> Result<(), String> {
     let latest_tag = latest_modules_download_url()
         .as_deref()
         .and_then(tag_from_modules_url);
     let local = local_modules_version();
-    // A matching version marker is not enough: the bins can be missing or
-    // corrupt while the marker survives. Only skip the download when the
-    // hash-pinned blobs actually verify.
-    // Fresh verify: a cached `modules_downloaded` result could hide files
-    // deleted or replaced after the last check.
+    // A matching version marker is not enough: the bins can be missing while
+    // the marker survives. Only skip the download when the expected files are
+    // present; PawnIO verifies their signatures when they are loaded.
     if !modules_update_needed(local.as_deref(), latest_tag.as_deref()) && redetect_modules(amd) {
         tracing::info!(
             "PawnIO Modules already at latest ({})",
@@ -893,6 +891,9 @@ pub(super) fn open_handle(blob: &[u8]) -> Result<PawnioHandle, &'static str> {
         warn!("pawnio_load returned hr=0x{:X}", hr);
         let close = DLL_CLOSE.lock().ok_or("PawnIO DLL not initialized")?;
         unsafe { close(handle) };
+        if hr as u32 == 0xC000_0428 {
+            return Err("PawnIO rejected the module signature");
+        }
         return Err("pawnio_load failed");
     }
 

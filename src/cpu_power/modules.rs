@@ -1,5 +1,6 @@
-//! PawnIO Modules acquisition: download, hash verification, safe ZIP extraction,
+//! PawnIO Modules acquisition: signed-release download, safe ZIP extraction,
 //! the local version marker, and the blob caches used by the limit paths.
+//! PawnIO verifies every module signature before loading it.
 
 use std::os::windows::ffi::OsStrExt;
 use std::os::windows::process::CommandExt;
@@ -11,29 +12,19 @@ use windows_sys::Win32::Storage::FileSystem::GetDiskFreeSpaceExW;
 const MODULES_DIR_NAME: &str = "modules";
 /// Marker file recording which upstream tag the local bins came from.
 const MODULES_VERSION_FILE: &str = ".version";
-/// Last-known-good PawnIO.Modules upstream release tag, used ONLY as a
-/// fallback download URL when the GitHub API is unreachable. The primary
-/// path always queries the latest release. Hashes are enforced by default;
-/// set FRAMEWORK_ALLOW_UNKNOWN_MODULE_HASH=1 only after manual verification.
-const LAST_KNOWN_MODULES_VERSION: &str = "0.2.11";
-const INTEL_MSR_SHA256: &str = "d6ed85d65ab17a22f813ef98207d6d537155ee2ded5976a21cb48413c9b92e5f";
-const INTEL_MCHBAR_SHA256: &str =
-    "3f82b832d99b4aac37d2a20fdb7c9baa2a3bc0488612c9019c9484eb0e8a6eae";
-const RYZEN_SMU_SHA256: &str = "301d9ca397108e09f31bfbd5ac4c9bb4f352a5de68532c32db3ba7ddcde93450";
+/// Fallback PawnIO.Modules release used only when the GitHub API is
+/// unreachable. The primary path downloads the latest official signed
+/// release; PawnIO verifies module signatures before loading them, so this
+/// app does not pin per-file hashes.
+const LAST_KNOWN_MODULES_VERSION: &str = "0.2.12";
 
-/// Module blob file names. Named next to the hashes they belong to: a typo in
-/// a file name compiles either way and only shows up as a missing blob at
-/// runtime, next to a hash that is correct.
+/// Module blob file names.
 const INTEL_MSR_FILE: &str = "IntelMSR.bin";
 const INTEL_MCHBAR_FILE: &str = "IntelMCHBAR.bin";
 const RYZEN_SMU_FILE: &str = "RyzenSMU.bin";
 
-/// Files extracted from the upstream ZIP and verified before promotion.
-const REQUIRED_MODULES: [(&str, &str); 3] = [
-    (INTEL_MSR_FILE, INTEL_MSR_SHA256),
-    (INTEL_MCHBAR_FILE, INTEL_MCHBAR_SHA256),
-    (RYZEN_SMU_FILE, RYZEN_SMU_SHA256),
-];
+/// Files extracted from the upstream ZIP and required before promotion.
+const REQUIRED_MODULES: [&str; 3] = [INTEL_MSR_FILE, INTEL_MCHBAR_FILE, RYZEN_SMU_FILE];
 
 /// Upper bound for the downloaded Modules ZIP. Releases are a few hundred KB;
 /// anything larger is either the wrong file or a decompression-bomb attempt.
@@ -103,13 +94,6 @@ pub(super) fn modules_update_needed(local: Option<&str>, latest_tag: Option<&str
     match (local, latest_tag) {
         (Some(l), Some(t)) => l != t,
         _ => true,
-    }
-}
-
-fn fallback_overwrite_allowed(local: Option<&str>, bins_present: bool) -> bool {
-    match local {
-        Some(version) => version == LAST_KNOWN_MODULES_VERSION,
-        None => !bins_present,
     }
 }
 
@@ -272,66 +256,10 @@ pub(super) fn sha256_hex(bytes: &[u8]) -> String {
         .collect()
 }
 
-/// Explicit opt-in for loading module blobs whose hashes are not pinned.
-/// Default is fail-closed; only set this after manually verifying a newer
-/// upstream release. Debug-only like the DLL bypass: release builds must
-/// not let an env var disable hash pinning.
-fn module_hash_override_enabled() -> bool {
-    #[cfg(debug_assertions)]
-    {
-        std::env::var_os("FRAMEWORK_ALLOW_UNKNOWN_MODULE_HASH").is_some()
-    }
-    #[cfg(not(debug_assertions))]
-    {
-        false
-    }
-}
-
-fn check_module_hash(
-    path: &std::path::Path,
-    expected: &str,
-    actual: &str,
-    allow_unknown: bool,
-) -> Result<(), &'static str> {
-    if actual == expected {
-        return Ok(());
-    }
-    if allow_unknown {
-        warn!(
-            "PawnIO module hash mismatch but continuing due to FRAMEWORK_ALLOW_UNKNOWN_MODULE_HASH: {} expected {} got {}",
-            path.display(),
-            expected,
-            actual
-        );
-        return Ok(());
-    }
-    warn!(
-        "PawnIO module hash mismatch, refusing to load: {} expected {} got {}",
-        path.display(),
-        expected,
-        actual
-    );
-    Err("module hash mismatch")
-}
-
-fn verify_module_hash(path: &std::path::Path, expected: &str) -> Result<(), &'static str> {
-    let bytes = std::fs::read(path).map_err(|_| "module blob missing")?;
-    let actual = sha256_hex(&bytes);
-    check_module_hash(path, expected, &actual, module_hash_override_enabled())
-}
-
-/// Reads module blob and verifies hash on same bytes to prevent TOCTOU.
-fn read_verified_module(path: &std::path::Path, expected: &str) -> Result<Vec<u8>, &'static str> {
-    let bytes = std::fs::read(path).map_err(|_| "module blob missing")?;
-    let actual = sha256_hex(&bytes);
-    check_module_hash(path, expected, &actual, module_hash_override_enabled())?;
-    Ok(bytes)
-}
-
 static MODULES_CACHE: parking_lot::RwLock<Option<bool>> = parking_lot::RwLock::new(None);
 static AMD_MODULES_CACHE: parking_lot::RwLock<Option<bool>> = parking_lot::RwLock::new(None);
 
-fn modules_ready(cache: &parking_lot::RwLock<Option<bool>>, required: &[(&str, &str)]) -> bool {
+fn modules_ready(cache: &parking_lot::RwLock<Option<bool>>, required: &[&str]) -> bool {
     {
         let guard = cache.read();
         if let Some(cached) = *guard {
@@ -339,16 +267,17 @@ fn modules_ready(cache: &parking_lot::RwLock<Option<bool>>, required: &[(&str, &
         }
     }
     let dir = modules_dir();
-    let ready = required.iter().all(|(name, _)| dir.join(name).is_file())
-        && required
-            .iter()
-            .all(|(name, expected)| verify_module_hash(&dir.join(name), expected).is_ok());
+    let ready = required.iter().all(|name| {
+        dir.join(name)
+            .metadata()
+            .is_ok_and(|meta| meta.is_file() && meta.len() > 0)
+    });
     *cache.write() = Some(ready);
     ready
 }
 
-/// Intel modules (MSR + MCHBAR). Presence alone is not enough: hashes are
-/// enforced, so a mismatched manual copy counts as missing.
+/// Intel modules (MSR + MCHBAR). PawnIO verifies their signatures when they
+/// are loaded; this only checks that the blobs are present.
 pub fn modules_downloaded() -> bool {
     modules_ready(&MODULES_CACHE, &REQUIRED_MODULES[..2])
 }
@@ -731,8 +660,9 @@ fn extract_staged_zip_inner(
         cleanup(&staging, zip_tmp);
         return Err(e);
     }
-    // 4. Require the expected bins as regular files, then enforce hashes.
-    for (name, _) in REQUIRED_MODULES {
+    // 4. Require the expected bins as regular files. PawnIO verifies each
+    // module signature when the blob is loaded.
+    for name in REQUIRED_MODULES {
         let src = staging.join(name);
         let meta =
             std::fs::symlink_metadata(&src).map_err(|_| format!("archive missing {}", name))?;
@@ -741,17 +671,8 @@ fn extract_staged_zip_inner(
             return Err(format!("archive missing {}", name));
         }
     }
-    for (name, expected) in REQUIRED_MODULES {
-        if let Err(e) = verify_module_hash(&staging.join(name), expected) {
-            cleanup(&staging, zip_tmp);
-            return Err(format!(
-                "{} {}; upstream may be newer than this app — update the app, or set FRAMEWORK_ALLOW_UNKNOWN_MODULE_HASH=1 only after manual verification",
-                name, e
-            ));
-        }
-    }
-    // 5. Promote verified bins into modules dir; old bins stay until replaced.
-    for (name, _) in REQUIRED_MODULES {
+    // 5. Promote the bins into modules dir; old bins stay until replaced.
+    for name in REQUIRED_MODULES {
         let src = staging.join(name);
         let dst = dir.join(name);
         let _ = std::fs::remove_file(&dst);
@@ -783,36 +704,37 @@ fn check_zip_size(zip_tmp: &std::path::Path) -> Result<(), String> {
     Ok(())
 }
 
-/// Downloads PawnIO Modules ZIP and extracts blobs.
+fn pinned_modules_url() -> String {
+    format!(
+        "https://github.com/namazso/PawnIO.Modules/releases/download/{0}/release_{1}.zip",
+        LAST_KNOWN_MODULES_VERSION,
+        LAST_KNOWN_MODULES_VERSION.replace('.', "_")
+    )
+}
+
+/// Downloads the latest official signed PawnIO Modules release and extracts
+/// the blobs. PawnIO verifies the module signatures when they are loaded.
 pub fn download_and_extract_modules() -> Result<(), String> {
     let dir = validated_modules_dir()?;
 
-    // Primary: latest release asset URL. Fallback: last-known release so a
-    // flaky GitHub API degrades to a slightly old download instead of an error.
-    // Fail-closed against downgrade: if the API is unreachable and the local
-    // install is already newer than LAST_KNOWN, keep it instead of
-    // overwriting with the older fallback.
+    // Primary: latest signed release. Fallback: last-known release when the
+    // GitHub API is unreachable; keep existing complete modules instead of
+    // overwriting them with an older fallback.
     let latest_url = latest_modules_download_url();
     let using_fallback = latest_url.is_none();
     let url = latest_url.unwrap_or_else(|| {
         warn!("GitHub API unreachable, falling back to last-known release");
-        format!(
-            "https://github.com/namazso/PawnIO.Modules/releases/download/{0}/release_{1}.zip",
-            LAST_KNOWN_MODULES_VERSION,
-            LAST_KNOWN_MODULES_VERSION.replace('.', "_")
-        )
+        pinned_modules_url()
     });
-    if using_fallback {
-        let local = local_modules_version();
-        let bins_present = REQUIRED_MODULES
-            .iter()
-            .any(|(name, _)| dir.join(name).is_file());
-        if !fallback_overwrite_allowed(local.as_deref(), bins_present) {
-            return Err(format!(
-                "GitHub API unreachable and local modules ({}) are not the known fallback {LAST_KNOWN_MODULES_VERSION}; refusing to overwrite a possibly newer or unmarked install",
-                local.as_deref().unwrap_or("unknown")
-            ));
-        }
+    if using_fallback
+        && REQUIRED_MODULES.iter().all(|name| {
+            dir.join(name)
+                .metadata()
+                .is_ok_and(|meta| meta.is_file() && meta.len() > 0)
+        })
+    {
+        warn!("GitHub API unreachable; keeping existing modules");
+        return Ok(());
     }
     // Primary path uses curl so `--max-filesize` rejects an oversized response
     // before it is written. PowerShell remains the fallback for environments
@@ -987,13 +909,8 @@ fn invalidate_blob_cache() {
 }
 
 /// Returns the locally installed PawnIO Modules version for display:
-/// recorded tag, hash-inferred tag for unmarked bins, `unknown` for
-/// unrecognized manual installs, `not installed` when absent.
-///
-/// Self-heals: when the blobs match a known release hash but carry no version
-/// marker (a manual copy), the inferred tag is recorded so the number shows
-/// up next time. That is a write to the modules directory from a getter, which
-/// is why it happens at most once per process.
+/// recorded tag, `unknown` for unmarked manual installs, `not installed`
+/// when absent.
 pub fn pawnio_modules_version() -> String {
     if let Some(v) = MODULES_VERSION.read().clone() {
         return v;
@@ -1001,19 +918,8 @@ pub fn pawnio_modules_version() -> String {
     let dir = modules_dir();
     let v = if let Some(local) = local_modules_version() {
         local
-    } else if dir.join(INTEL_MSR_FILE).is_file() && dir.join(INTEL_MCHBAR_FILE).is_file() {
-        let msr = std::fs::read(dir.join(INTEL_MSR_FILE))
-            .map(|b| sha256_hex(&b))
-            .unwrap_or_default();
-        let mchbar = std::fs::read(dir.join(INTEL_MCHBAR_FILE))
-            .map(|b| sha256_hex(&b))
-            .unwrap_or_default();
-        if msr == INTEL_MSR_SHA256 && mchbar == INTEL_MCHBAR_SHA256 {
-            persist_local_modules_version(&dir, LAST_KNOWN_MODULES_VERSION);
-            LAST_KNOWN_MODULES_VERSION.to_string()
-        } else {
-            "unknown (manual install?)".to_string()
-        }
+    } else if REQUIRED_MODULES.iter().any(|name| dir.join(name).is_file()) {
+        "unknown (manual install?)".to_string()
     } else {
         "not installed".to_string()
     };
@@ -1042,12 +948,11 @@ pub fn redetect_modules(amd: bool) -> bool {
     }
 }
 
-/// Loads a module blob through the cache, verifying hash on first load.
-/// Shared by the MSR/MCHBAR loaders so the two cannot drift apart.
+/// Loads a module blob through the cache. PawnIO verifies the signature when
+/// the blob is loaded.
 fn load_blob(
     cache: &parking_lot::Mutex<Option<Arc<Vec<u8>>>>,
     name: &str,
-    expected: &str,
 ) -> Result<Vec<u8>, &'static str> {
     {
         let guard = cache.lock();
@@ -1055,41 +960,30 @@ fn load_blob(
             return Ok((**cached).clone());
         }
     }
-    let blob = read_verified_module(&modules_dir().join(name), expected)?;
+    let blob = std::fs::read(modules_dir().join(name)).map_err(|_| "module blob missing")?;
     let arc = Arc::new(blob.clone());
     *cache.lock() = Some(arc);
     Ok(blob)
 }
 
-/// Loads IntelMSR blob (cached after first verified load).
+/// Loads IntelMSR blob (cached after first load).
 pub(super) fn load_intel_msr_blob() -> Result<Vec<u8>, &'static str> {
-    load_blob(&MSR_BLOB_CACHE, INTEL_MSR_FILE, INTEL_MSR_SHA256)
+    load_blob(&MSR_BLOB_CACHE, INTEL_MSR_FILE)
 }
 
-/// Loads IntelMCHBAR blob (cached after first verified load).
+/// Loads IntelMCHBAR blob (cached after first load).
 pub(super) fn load_intel_mchbar_blob() -> Result<Vec<u8>, &'static str> {
-    load_blob(&MCHBAR_BLOB_CACHE, INTEL_MCHBAR_FILE, INTEL_MCHBAR_SHA256)
+    load_blob(&MCHBAR_BLOB_CACHE, INTEL_MCHBAR_FILE)
 }
 
-/// Loads RyzenSMU blob (cached after first verified load).
+/// Loads RyzenSMU blob (cached after first load).
 pub(super) fn load_ryzen_smu_blob() -> Result<Vec<u8>, &'static str> {
-    load_blob(&RYZEN_SMU_BLOB_CACHE, RYZEN_SMU_FILE, RYZEN_SMU_SHA256)
+    load_blob(&RYZEN_SMU_BLOB_CACHE, RYZEN_SMU_FILE)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn fallback_refuses_unknown_or_newer_local_installs() {
-        assert!(fallback_overwrite_allowed(None, false));
-        assert!(!fallback_overwrite_allowed(None, true));
-        assert!(fallback_overwrite_allowed(
-            Some(LAST_KNOWN_MODULES_VERSION),
-            true
-        ));
-        assert!(!fallback_overwrite_allowed(Some("0.2.12"), true));
-    }
 
     #[test]
     fn staging_space_requires_cap_plus_margin() {
@@ -1216,18 +1110,5 @@ drwxr-xr-x  0 0 0  0 Jan 25 21:40 dir/\n";
         assert!(modules_update_needed(None, Some("0.2.11")));
         assert!(modules_update_needed(Some("0.2.11"), None));
         assert!(modules_update_needed(None, None));
-    }
-
-    #[test]
-    fn verify_module_hash_rejects_mismatch() {
-        let dir = std::env::temp_dir().join("framework-crate-hash-test");
-        let _ = std::fs::create_dir_all(&dir);
-        let path = dir.join("bad.bin");
-        std::fs::write(&path, b"not-a-module").unwrap();
-        let actual = sha256_hex(b"not-a-module");
-        // Fail-closed by default; explicit override is the only bypass.
-        assert!(check_module_hash(&path, INTEL_MSR_SHA256, &actual, false).is_err());
-        assert!(check_module_hash(&path, INTEL_MSR_SHA256, &actual, true).is_ok());
-        let _ = std::fs::remove_file(&path);
     }
 }
