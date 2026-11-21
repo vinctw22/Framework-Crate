@@ -270,7 +270,9 @@ pub fn platform_family(platform: Option<Platform>) -> PlatformFamily {
         Some(Platform::Framework16Amd7080) | Some(Platform::Framework16AmdAi300) => {
             PlatformFamily::Laptop16
         }
-        Some(Platform::FrameworkDesktopAmdAiMax300) => PlatformFamily::Desktop,
+        Some(Platform::FrameworkDesktopAmdAiMax300 | Platform::FrameworkDesktopAmdAiMax400) => {
+            PlatformFamily::Desktop
+        }
         Some(Platform::GenericFramework(..)) | Some(Platform::UnknownSystem) | None => {
             PlatformFamily::Unknown
         }
@@ -554,14 +556,16 @@ fn sensor_name_for_index(platform: Option<Platform>, index: usize) -> String {
                 _ => return format!("Sensor {}", index),
             }
         }
-        Some(Platform::FrameworkDesktopAmdAiMax300) => match index {
-            0 => "F75303_APU",
-            1 => "F75303_DDR",
-            2 => "F75303_AMB",
-            3 => "APU",
-            4 => "Virtual",
-            _ => return format!("Sensor {}", index),
-        },
+        Some(Platform::FrameworkDesktopAmdAiMax300 | Platform::FrameworkDesktopAmdAiMax400) => {
+            match index {
+                0 => "F75303_APU",
+                1 => "F75303_DDR",
+                2 => "F75303_AMB",
+                3 => "APU",
+                4 => "Virtual",
+                _ => return format!("Sensor {}", index),
+            }
+        }
         _ => return format!("Sensor {}", index),
     };
     name.to_string()
@@ -1063,6 +1067,10 @@ pub(crate) mod tests {
             (Platform::Framework16AmdAi300, PlatformFamily::Laptop16),
             (
                 Platform::FrameworkDesktopAmdAiMax300,
+                PlatformFamily::Desktop,
+            ),
+            (
+                Platform::FrameworkDesktopAmdAiMax400,
                 PlatformFamily::Desktop,
             ),
             (Platform::UnknownSystem, PlatformFamily::Unknown),
