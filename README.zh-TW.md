@@ -51,7 +51,7 @@
 - **電池管理** — 最高充電上限（25–100%）與啟用／停用開關；啟動時套用已儲存上限。健康度以 last-full／設計容量計算；Details 區塊在 AC 時顯示充電器電壓／輸入，並在可讀取時顯示智慧電池資料（各電芯電壓、電池組溫度、安全警示）
 - **即時遙測** — 即時溫度圖（可選 15/30/60 秒視窗，預設 30 秒）、各感測器彩色指示，標題列顯示風扇 RPM
 - **Misc 面板** — 相機／麥克風隱私開關狀態、鍵盤背光滑桿、指紋 LED 等級，以及依 PD 狀態推斷的 USB-C／HDMI／DP 連接埠分類
-- **CPU Power** — Intel：透過 PawnIO 讀寫 PL1/PL2（選用；模組下載經 SHA-256 驗證）；可讀取時顯示 turbo 即時值（目前／上限 GHz）；第一次在 AC 下成功讀取時會儲存原廠限制供 `Reset` 使用。`Apply` 會把數值存進目前選取的 **AC** 或 **Battery** profile；About 頁的「Keep power limits applied」啟用時（設定會持久化），啟動與每次 AC↔電池切換都會套用對應 profile。寫入只走 MSR 0x610：官方 IntelMCHBAR 模組為唯讀，MMIO mirror 僅顯示、不寫入。寫入依機型上限（Laptop 12 → 40W、13 → 70W、16 → 100W、Desktop → 120W），啟用時需 ≥5W，且 PL1 ≤ PL2。**AMD（實驗性）**：RyzenSMU 卡片顯示 code name、SMU 版本，以及 PM table 的 STAPM／PPT Fast／PPT Slow／Tctl；AC／Battery profiles 與 keep-alive 行為與 Intel 相同。寫入需明確開啟實驗性選項，仍需社群實機驗證。
+- **CPU Power** — Intel：透過 PawnIO 讀寫 PL1/PL2（選用；模組下載由 PawnIO 驗證簽章）；可讀取時顯示 turbo 即時值（目前／上限 GHz）；第一次在 AC 下成功讀取時會儲存原廠限制供 `Reset` 使用。`Apply` 會把數值存進目前選取的 **AC** 或 **Battery** profile；About 頁的「Keep power limits applied」啟用時（設定會持久化），啟動與每次 AC↔電池切換都會套用對應 profile。寫入只走 MSR 0x610：官方 IntelMCHBAR 模組為唯讀，MMIO mirror 僅顯示、不寫入。寫入依機型上限（Laptop 12 → 40W、13 → 70W、16 → 100W、Desktop → 120W），啟用時需 ≥5W，且 PL1 ≤ PL2。**AMD（實驗性）**：RyzenSMU 卡片顯示 code name、SMU 版本，以及 PM table 的 STAPM／PPT Fast／PPT Slow／Tctl；AC／Battery profiles 與 keep-alive 行為與 Intel 相同。寫入需明確開啟實驗性選項，仍需社群實機驗證。
 - **About 頁面** — 硬體資訊（CPU、RAM、螢幕、BIOS、主機板版本）、PD 控制器韌體版本、軟體設定（poll 頻率、refresh 間隔、開機啟動、keep power limits applied）、GitHub 連結、手動下載網址的一鍵複製按鈕，以及第三方授權聲明
 - **設定備份** — 將設定匯出成檔案（原生存檔對話框、標記機型）並可匯入；嚴格驗證會拒絕未知欄位與版本不符，機型尺寸不同也會直接被拒絕
 - **系統匣** — 可最小化到系統匣；圖示右鍵選單（Show／Quit）與目前溫度 hover tooltip；Explorer 重啟後會自動恢復圖示
@@ -328,7 +328,6 @@ selected_sensors = []
 |------|------|
 | `RUST_LOG` | 日誌過濾（預設 `info`），例如 `RUST_LOG=debug` |
 | `FRAMEWORK_CONTROL_CONFIG_DIR` | 在 debug／測試版覆寫設定目錄。必須是絕對路徑，不能含 `..` 或 `\\?\`／`\\.\` 前綴。Release 版忽略 |
-| `FRAMEWORK_ALLOW_UNKNOWN_MODULE_HASH=1` | 載入未 pin 雜湊的 PawnIO 模組 blob。僅在人工驗證較新上游版本後使用。僅 debug 版；release 一律 fail closed |
 | `FRAMEWORK_ALLOW_UNSIGNED_PAWNIO=1` | Authenticode 失敗時仍載入 PawnIO DLL，供自簽測試 DLL 使用。僅 debug 版；release 一律 fail closed |
 | `FRAMEWORK_CONTROL_ALLOW_UNPROTECTED_HANDOVER=1` | 允許從 Program Files 以外的位置註冊 SYSTEM 登出交接工作。僅 debug 版；release 版忽略。僅供開發：任何能寫入該 exe 的使用者都可能以 SYSTEM 執行程式碼 |
 
@@ -364,20 +363,13 @@ CPU Power 區塊支援 **Intel**（透過 MSR 0x610 的 PL1/PL2）與 **AMD**（
 
 1. 安裝 PawnIO 驅動：`winget install namazso.PawnIO`（或在程式內按 **Install PawnIO**）。
 2. 開啟 **CPU Power**，按 **Download Modules**。
-3. 程式會從 [PawnIO Modules Releases](https://github.com/namazso/PawnIO.Modules/releases) 取得 `IntelMSR.bin`、`IntelMCHBAR.bin` 與 `RyzenSMU.bin`（GitHub API 無法連線時退回 0.2.11），驗證 SHA-256（強制）後快取到 `%APPDATA%/framework-crate/modules/`。Intel 使用前兩個；AMD 遙測與實驗性寫入使用 `RyzenSMU.bin`。
+3. 程式會從 [PawnIO Modules Releases](https://github.com/namazso/PawnIO.Modules/releases) 取得 `IntelMSR.bin`、`IntelMCHBAR.bin` 與 `RyzenSMU.bin`（GitHub API 無法連線時退回 0.2.12），由 PawnIO 驗證 module 簽章後快取到 `%APPDATA%/framework-crate/modules/`。Intel 使用前兩個；AMD 遙測與實驗性寫入使用 `RyzenSMU.bin`。
 
-缺少檔案會封鎖 CPU Power；雜湊不符也會封鎖 — 請更新程式，或只在人工驗證後設定 `FRAMEWORK_ALLOW_UNKNOWN_MODULE_HASH=1`（僅 debug build）。下載失敗會顯示手動指示：從 releases 頁下載最新的 `release_*.zip`，把 `IntelMSR.bin` + `IntelMCHBAR.bin`（Intel）或 `RyzenSMU.bin`（AMD）放到 `%APPDATA%/framework-crate/modules/`。可用 UI 的 **Open Modules Folder** 與 **Redetect** 驗證 — 不需重新啟動。
+缺少檔案會封鎖 CPU Power；PawnIO 在載入時會驗證 module 簽章，簽章被拒絕也會封鎖。下載失敗會顯示手動指示：從 releases 頁下載最新的 `release_*.zip`，把 `IntelMSR.bin` + `IntelMCHBAR.bin`（Intel）或 `RyzenSMU.bin`（AMD）放到 `%APPDATA%/framework-crate/modules/`。可用 UI 的 **Open Modules Folder** 與 **Redetect** 驗證 — 不需重新啟動。
 
-### PawnIO.Modules 更新後出現雜湊不符
+### PawnIO module 簽章
 
-Framework Crate 會用編譯進 App 的 SHA-256 驗證 module，因此較新的 upstream 版本在 App 更新前會被拒絕。Framework Crate 0.9.10 pin 的是 PawnIO Modules 0.2.11：
-
-1. 從 [0.2.11 release](https://github.com/namazso/PawnIO.Modules/releases/tag/0.2.11) 下載 `release_0_2_11.zip`。
-2. 在 **CPU Power** 按 **Open Modules Folder**。
-3. 將 `IntelMSR.bin`、`IntelMCHBAR.bin`（AMD 另加 `RyzenSMU.bin`）放到 `%APPDATA%\framework-crate\modules\`。
-4. 按 **Redetect**。
-
-`FRAMEWORK_ALLOW_UNKNOWN_MODULE_HASH=1` 只在 debug build 有效；release build 一律 fail closed。永久修正方式是發布 pin 新 hash 的 App 版本。
+Framework Crate 會下載最新的官方 signed PawnIO Modules release，並由 PawnIO 在載入前驗證 module 簽章。App 不 pin 個別檔案 hash，因此 upstream 的 signed module 更新不需要重新發佈 Framework Crate。PawnIO 的 unrestricted developer build 會跳過簽章驗證；請使用官方 PawnIO build。
 
 第一次在 AC 下成功的 RAPL 讀取也會把原廠限制持久化到 `bios_defaults.toml`（見設定）。`Reset` 會從該快照還原 MSR 值；MMIO mirror 唯讀且不會被更動。`Apply` 會把編輯值存進目前選取的 AC 或 Battery profile。程式會從 **MMIO mirror** 記錄各狀態的韌體功耗牆（設定中的 `ac_initial`／`battery_initial`），只在 mirror 數值變更時更新（例如 BIOS 更新後），並在沒有使用者 profile 時作為預設。這些擷取值只存在本機：設定匯出會省略、匯入會清除，讓接收機器記錄自己的值。About 頁的「Keep power limits applied」啟用時，對應 profile（或記錄的功耗牆）會在啟動、resume 後、每次 AC↔電池切換時套用一次，之後每 5 分鐘重送；開關會持久化。開關關閉時，AC→電池維持原本重置為 BIOS 預設的行為。若來源既沒有 profile 也沒有記錄的功耗牆，會退回該重置，而不是猜測數值。
 
@@ -389,7 +381,7 @@ Framework Crate 會用編譯進 App 的 SHA-256 驗證 module，因此較新的 
 
 **LGPL-2.1 合規：**
 
-PawnIO Modules 為 LGPL-2.1。本專案不散布這些 blob。來源：https://github.com/namazso/PawnIO.Modules（最新，目前 0.2.11）
+PawnIO Modules 為 LGPL-2.1。本專案不散布這些 blob。來源：https://github.com/namazso/PawnIO.Modules（最新，目前 0.2.12）
 
 </details>
 

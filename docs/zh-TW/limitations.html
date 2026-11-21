@@ -54,7 +54,7 @@
 <h2>未解決</h2>
 <ul class="tight">
 <li><strong>AMD CPU Power 寫入為實驗性。</strong> RyzenSMU 卡片可讀取 STAPM／PPT Fast／PPT Slow／Tctl 並套用 AC／Battery profiles，但要勾選「Enable experimental AMD writes」才會寫入。維護者沒有 AMD 硬體，各 CPU 世代的命令行為仍需社群驗證。</li>
-<li id="pawnio-module-hash"><strong>PawnIO module hash 會隨 App 版本固定。</strong> App 會驗證編譯進程式的 SHA-256，因此較新的 PawnIO.Modules 版本在 App 更新前會被拒絕。Framework Crate 0.9.10 pin 的是 0.2.11：從 <a href="https://github.com/namazso/PawnIO.Modules/releases/tag/0.2.11"><code>release_0_2_11.zip</code></a> 下載，將 <code>IntelMSR.bin</code>、<code>IntelMCHBAR.bin</code>（AMD 另加 <code>RyzenSMU.bin</code>）放到 <code>%APPDATA%\framework-crate\modules\</code>，再用 <strong>Open Modules Folder</strong> 與 <strong>Redetect</strong>。<code>FRAMEWORK_ALLOW_UNKNOWN_MODULE_HASH=1</code> 只在 debug build 有效；release build 一律 fail closed。</li>
+<li id="pawnio-module-signing"><strong>PawnIO module 簽章驗證取決於 PawnIO edition。</strong> Framework Crate 會下載最新的官方 signed PawnIO.Modules release，並由 PawnIO 在載入前驗證簽章；App 不 pin 個別檔案 hash。PawnIO 的 unrestricted developer build 會跳過簽章驗證，請使用官方 PawnIO build。</li>
 <li><strong>測試平台有限。</strong> 只在 Intel Core Ultra Series 1（Meteor Lake）Framework 筆電測試；必須安裝 Framework EC kernel driver。</li>
 <li><strong>逐風扇曲線缺少多風扇驗證。</strong> 只有模擬 EC 的單元測試 — 沒有 Framework 16／Desktop 硬體。單風扇機種走完全相同的既有路徑。</li>
 <li><strong>崩潰會保留最後狀態。</strong> 正常退出會還原韌體風扇控制並 flush 充電上限；崩潰或強制終止會跳過該路徑，EC 會保留最後寫入的 fan duty，直到睡眠、重開機、下次啟動，或下一次登出（已註冊 SYSTEM 交接工作時會還原韌體控制）。</li>
