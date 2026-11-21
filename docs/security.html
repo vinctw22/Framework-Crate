@@ -58,7 +58,7 @@
 <h2>Automated checks</h2>
 <ul class="tight">
 <li><strong>CodeQL</strong> static analysis runs on every push, pull request, and weekly schedule.</li>
-<li><strong>cargo audit</strong> (RustSec) runs in CI; known-unmaintained crates are allow-listed with review dates.</li>
+<li><strong>cargo audit</strong> (RustSec) runs in CI; unmaintained and unsound transitive advisories are reviewed on every dependency upgrade.</li>
 <li><strong>Dependabot</strong> alerts and monthly update PRs cover dependencies and GitHub Actions.</li>
 <li><strong>Secret scanning + push protection</strong> block accidental commits of tokens and keys.</li>
 <li><strong>Releases</strong> publish SHA-256 checksums and VirusTotal links for both the portable exe and the Inno installer; winget manifests pin the installer SHA-256.</li>
